@@ -19,14 +19,16 @@ int main(int argc, char *argv[])
 	if (argc == 1) {
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 <command> [arguments]\n\n");
-		fprintf(stderr, "Command: diff     extract reads indices containing special k-mers\n");
-		fprintf(stderr, "         sub      extract reads from their indices\n");
+		fprintf(stderr, "Command: diff     compare two FMD-indices\n");
+		fprintf(stderr, "         occflt   pick up reads containing low-occurrence k-mers\n");
+		fprintf(stderr, "         sub      subset FM-index\n");
 		fprintf(stderr, "         unpack   unpack FM-index\n");
 		fprintf(stderr, "\n");
 		return 1;
 	}
 	t_start = realtime();
 	if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
+	else if (strcmp(argv[1], "occflt") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "sub") == 0) ret = main_sub(argc-1, argv+1);
 	else if (strcmp(argv[1], "unpack") == 0) ret = main_unpack(argc-1, argv+1);
 	else {

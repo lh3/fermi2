@@ -135,7 +135,7 @@ uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int k, int min_occ, int 
 
 int main_diff(int argc, char *argv[])
 {
-	int c, k = 21, min_occ = 2, n_threads = 1;
+	int c, k = 51, min_occ = 2, n_threads = 1;
 	uint64_t n_seqs, *bits;
 	rld_t *eqry = 0, *eref = 0;
 	while ((c = getopt(argc, argv, "k:o:t:")) >= 0) {
@@ -144,7 +144,9 @@ int main_diff(int argc, char *argv[])
 		else if (c == 't') n_threads = atoi(optarg);
 	}
 	if (optind == argc) {
-		fprintf(stderr, "Usage: fermi2 diff [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld> [ref.rld]\n", k, min_occ);
+		if (strcmp(argv[0], "diff") == 0)
+			fprintf(stderr, "Usage: fermi2 diff [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld> <ref.rld>\n", k, min_occ);
+		else fprintf(stderr, "Usage: fermi2 %s [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld>\n", argv[0], k, min_occ);
 		return 1;
 	}
 	eqry = rld_restore(argv[optind]);
