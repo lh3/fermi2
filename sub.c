@@ -18,7 +18,7 @@ static void set_bits(const rld_t *e, const uint64_t *sub, uint64_t *bits, int st
 		if ((sub[i>>6]>>(i&0x3f)&1) == 0) continue;
 		for (k = i;;) {
 			set_bit(bits, k);
-			c = rld_rank1a(e, k, ok);
+			c = rld_rank1a(e, k + 1, ok);
 			if (c == 0) break;
 			else k = e->cnt[c] + ok[c] - 1;
 		}
@@ -79,37 +79,69 @@ rld_t *fm_sub(rld_t *e, const uint64_t *sub, int n_threads, int is_comp)
 	return r;
 }
 
+#include "kstring.h"
+
+int64_t fm_retrieve(const rld_t *e, uint64_t x, kstring_t *s)
+{
+	uint64_t k = x, *ok;
+	ok = alloca(8 * e->asize);
+	s->l = 0;
+	while (1) {
+		int c = rld_rank1a(e, k + 1, ok);
+		k = e->cnt[c] + ok[c] - 1;
+		if (c == 0) return k;
+		kputc(c, s);
+	}
+}
+
 #include <unistd.h>
 
 int main_sub(int argc, char *argv[])
 {
-	int c, is_comp = 0, n_threads = 1;
+	int c, is_comp = 0, is_text = 0, n_threads = 1;
 	rld_t *e;
-	FILE *fp;
-	uint64_t n_seqs, *sub;
 
-	while ((c = getopt(argc, argv, "ct:")) >= 0) {
+	while ((c = getopt(argc, argv, "cpt:")) >= 0) {
 		if (c == 'c') is_comp = 1;
+		else if (c == 'p') is_text = 1;
 		else if (c == 't') n_threads = atoi(optarg);
 	}
-	if (optind + 2 >= argc) {
-		fprintf(stderr, "Usage: fermi2 sub [-c] [-t nThreads=1] <reads.rld> <bits.bin>\n");
+	if (optind + 1 > argc) {
+		fprintf(stderr, "Usage: fermi2 sub [-cp] [-t nThreads=1] <reads.rld> [bits.bin]\n");
 		return 1;
 	}
 	e = rld_restore(argv[optind]);
-	fp = fopen(argv[optind+1], "rb");
-	fread(&n_seqs, 8, 1, fp);
-	if (n_seqs != e->mcnt[1]) {
-		fprintf(stderr, "[E::%s] unmatched index and the bit array\n", __func__);
-		rld_destroy(e);
-		return 1;
+	if (optind + 1 < argc) {
+		uint64_t n_seqs, *sub;
+		FILE *fp;
+		fp = fopen(argv[optind+1], "rb");
+		fread(&n_seqs, 8, 1, fp);
+		if (n_seqs != e->mcnt[1]) {
+			fprintf(stderr, "[E::%s] unmatched index and the bit array\n", __func__);
+			rld_destroy(e);
+			return 1;
+		}
+		sub = malloc((n_seqs + 63) / 64 * 8);
+		fread(sub, 8, (n_seqs + 63) / 64, fp);
+		fclose(fp);
+		e = fm_sub(e, sub, n_threads, is_comp);
+		free(sub);
 	}
-	sub = malloc((n_seqs + 63) / 64 * 8);
-	fread(sub, 8, (n_seqs + 63) / 64, fp);
-	fclose(fp);
-	e = fm_sub(e, sub, n_threads, is_comp);
-	free(sub);
-	rld_dump(e, "-");
+	if (is_text) {
+		int64_t i, k;
+		int j, tmp;
+		kstring_t str = {0,0,0};
+		for (i = 0; i < e->mcnt[1]; ++i) {
+			k = fm_retrieve(e, i, &str);
+			for (j = 0; j < str.l; ++j)
+				str.s[j] = "$ACGTN"[(int)str.s[j]];
+			for (j = 0; j < str.l>>1; ++j)
+				tmp = str.s[j], str.s[j] = str.s[str.l-1-j], str.s[str.l-1-j] = tmp;
+			fwrite(str.s, 1, str.l, stdout);
+			printf("\t%ld\n", (long)k);
+		}
+		free(str.s);
+	} else rld_dump(e, "-");
 	rld_destroy(e);
 	return 0;
 }
