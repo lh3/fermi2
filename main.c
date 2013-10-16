@@ -5,6 +5,7 @@
 
 int main_diff(int argc, char *argv[]);
 int main_sub(int argc, char *argv[]);
+int main_unpack(int argc, char *argv[]);
 
 void liftrlimit(void);
 double cputime(void);
@@ -20,12 +21,14 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Usage:   fermi2 <command> [arguments]\n\n");
 		fprintf(stderr, "Command: diff     extract reads indices containing special k-mers\n");
 		fprintf(stderr, "         sub      extract reads from their indices\n");
+		fprintf(stderr, "         unpack   unpack FM-index\n");
 		fprintf(stderr, "\n");
 		return 1;
 	}
 	t_start = realtime();
 	if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "sub") == 0) ret = main_sub(argc-1, argv+1);
+	else if (strcmp(argv[1], "unpack") == 0) ret = main_unpack(argc-1, argv+1);
 	else {
 		fprintf(stderr, "[E::%s] unknown command\n", __func__);
 		return 1;
