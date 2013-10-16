@@ -17,10 +17,9 @@ typedef struct kt_for_t {
 
 static inline int steal_work(kt_for_t *t)
 {
-	int i, k, min = t->n, min_i = -1;
+	int i, k, min = 0x7fffffff, min_i = -1;
 	for (i = 0; i < t->n_threads; ++i)
 		if (min > t->w[i].i) min = t->w[i].i, min_i = i;
-	if (min_i < 0) return -1;
 	k = __sync_fetch_and_add(&t->w[min_i].i, t->n_threads);
 	return k >= t->n? -1 : k;
 }

@@ -4,6 +4,7 @@
 #define FM_VERSION "r1"
 
 int main_diff(int argc, char *argv[]);
+int main_sub(int argc, char *argv[]);
 
 void liftrlimit(void);
 double cputime(void);
@@ -19,6 +20,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Usage:   fermi2 <command> [arguments]\n\n");
 		fprintf(stderr, "Command: diff     extract reads containing special k-mers\n");
 		fprintf(stderr, "\n");
+		return 1;
 	}
 	t_start = realtime();
 	if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);

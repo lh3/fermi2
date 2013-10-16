@@ -1,8 +1,6 @@
 #include <assert.h>
 #include <pthread.h>
-#include "rld.h"
-#include "fermi.h"
-#include "utils.h"
+#include "rld0.h"
 
 static inline void set_bit(uint64_t *bits, uint64_t k)
 {
@@ -55,43 +53,63 @@ static rld_t *gen_idx(rld_t *e0, uint64_t *bits, int is_comp)
 }
 
 typedef struct {
-	int start, step;
 	const rld_t *e;
 	const uint64_t *sub;
 	uint64_t *bits;
-} worker_t;
+	int n_threads;
+} shared_t;
 
-static void *worker(void *data)
+void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n);
+
+static void worker(void *data, int i, int tid)
 {
-	worker_t *w = (worker_t*)data;
-	set_bits(w->e, w->sub, w->bits, w->start, w->step);
-	return 0;
+	shared_t *d = (shared_t*)data;
+	set_bits(d->e, d->sub, d->bits, i, d->n_threads);
 }
 
 rld_t *fm_sub(rld_t *e, const uint64_t *sub, int n_threads, int is_comp)
 {
-	uint64_t *bits;
-	worker_t *w;
-	pthread_t *tid;
-	pthread_attr_t attr;
-	int i, j;
+	shared_t d;
 	rld_t *r;
-
-	if (n_threads < 1) n_threads = 1;
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	tid = (pthread_t*)calloc(n_threads, sizeof(pthread_t));
-	w = (worker_t*)calloc(n_threads, sizeof(worker_t));
-	bits = xcalloc((e->mcnt[0] + 63) / 64, 8);
-	for (i = 0; i < n_threads; ++i) {
-		w[i].e = e, w[i].sub = sub, w[i].bits = bits;
-		w[i].start = i, w[i].step = n_threads;
-	}
-	for (j = 0; j < n_threads; ++j) pthread_create(&tid[j], &attr, worker, w + j);
-	for (j = 0; j < n_threads; ++j) pthread_join(tid[j], 0);
-	free(tid); free(w);
-
-	r = gen_idx(e, bits, is_comp);
-	free(bits);
+	d.bits = calloc((e->mcnt[0] + 63) / 64, 8);
+	d.sub = sub, d.e = e, d.n_threads = n_threads;
+	kt_for(n_threads, worker, &d, n_threads);
+	r = gen_idx(e, d.bits, is_comp);
+	free(d.bits);
 	return r;
+}
+
+#include <unistd.h>
+
+int main_sub(int argc, char *argv[])
+{
+	int c, is_comp = 0, n_threads = 1;
+	rld_t *e;
+	FILE *fp;
+	uint64_t n_seqs, *sub;
+
+	while ((c = getopt(argc, argv, "ct:")) >= 0) {
+		if (c == 'c') is_comp = 1;
+		else if (c == 't') n_threads = atoi(optarg);
+	}
+	if (optind + 2 >= argc) {
+		fprintf(stderr, "Usage: fermi2 sub [-c] [-t nThreads=1] <reads.rld> <bits.bin>\n");
+		return 1;
+	}
+	e = rld_restore(argv[optind]);
+	fp = fopen(argv[optind+1], "rb");
+	fread(&n_seqs, 8, 1, fp);
+	if (n_seqs != e->mcnt[1]) {
+		fprintf(stderr, "[E::%s] unmatched index and the bit array\n", __func__);
+		rld_destroy(e);
+		return 1;
+	}
+	sub = malloc((n_seqs + 63) / 64 * 8);
+	fread(sub, 8, (n_seqs + 63) / 64, fp);
+	fclose(fp);
+	e = fm_sub(e, sub, n_threads, is_comp);
+	free(sub);
+	rld_dump(e, "-");
+	rld_destroy(e);
+	return 0;
 }

@@ -42,7 +42,7 @@ static void collect_tips(const rld_t *e, uint64_t *sub, const rldintv_t *_ik, rl
 	}
 }
 
-static void contrast_core(const rld_t *eref, const rld_t *eqry, uint64_t *sub, int kmer, int min_occ, int suf_len, int suf)
+static void contrast_core(const rld_t *eqry, const rld_t *eref, uint64_t *sub, int kmer, int min_occ, int suf_len, int suf)
 {
 	rldintv_v stack[2], tstack;
 	rldintv_t ik[2], ok[2][6];
@@ -116,7 +116,7 @@ static void worker(void *data, int i, int tid)
 {
 	shared_t *d = (shared_t*)data;
 	if (!d->eref) occflt_core(d->eqry, d->sub, d->k, d->min_occ, SUF_LEN, i);
-	else contrast_core(d->eref, d->eqry, d->sub, d->k, d->min_occ, SUF_LEN, i);
+	else contrast_core(d->eqry, d->eref, d->sub, d->k, d->min_occ, SUF_LEN, i);
 }
 
 void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n);
@@ -126,7 +126,7 @@ uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int k, int min_occ, int 
 	shared_t d;
 	assert(k > SUF_LEN);
 	d.sub = calloc((eqry->mcnt[1] + 63) / 64, 8);
-	d.k = k, d.min_occ = min_occ, d.eref = eref, d.eqry = d.eqry;
+	d.k = k, d.min_occ = min_occ, d.eref = eref, d.eqry = eqry;
 	kt_for(n_threads, worker, &d, 1<<SUF_LEN*2);
 	return d.sub;
 }
@@ -136,7 +136,7 @@ uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int k, int min_occ, int 
 int main_diff(int argc, char *argv[])
 {
 	int c, k = 21, min_occ = 2, n_threads = 1;
-	uint64_t n_qry, *bits;
+	uint64_t n_seqs, *bits;
 	rld_t *eqry = 0, *eref = 0;
 	while ((c = getopt(argc, argv, "k:o:t:")) >= 0) {
 		if (c == 'k') k = atoi(optarg);
@@ -144,18 +144,18 @@ int main_diff(int argc, char *argv[])
 		else if (c == 't') n_threads = atoi(optarg);
 	}
 	if (optind == argc) {
-		fprintf(stderr, "Usage: fermi2 diff [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld> [ref.rld]\n",
-				k, min_occ, n_threads);
+		fprintf(stderr, "Usage: fermi2 diff [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld> [ref.rld]\n", k, min_occ);
 		return 1;
 	}
 	eqry = rld_restore(argv[optind]);
 	if (optind + 1 < argc)
 		eref = rld_restore(argv[optind+1]);
-	n_qry = eqry->mcnt[1];
+	n_seqs = eqry->mcnt[1];
 	bits = fm_diff(eqry, eref, k, min_occ, n_threads);
 	rld_destroy(eref);
 	rld_destroy(eqry);
-	fwrite(bits, 8, (n_qry + 63) / 64, stdout);
+	fwrite(&n_seqs, 8, 1, stdout);
+	fwrite(bits, 8, (n_seqs + 63) / 64, stdout);
 	free(bits);
 	return 0;
 }

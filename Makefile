@@ -2,7 +2,7 @@ CC=			gcc
 CFLAGS=		-g -Wall #-O2 #-fno-inline-functions -fno-inline-functions-called-once
 CPPFLAGS=
 INCLUDES=	
-OBJS=		kthread.o rld0.o utils.o diff.o
+OBJS=		kthread.o rld0.o sys.o diff.o sub.o
 PROG=		fermi2
 LIBS=		-lm -lz -lpthread
 
