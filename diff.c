@@ -139,7 +139,7 @@ uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int min_k, int max_k, in
 
 int main_diff(int argc, char *argv[])
 {
-	int c, min_k = 17, max_k = 51, min_occ = 2, n_threads = 1;
+	int c, min_k = 25, max_k = 51, min_occ = 2, n_threads = 1;
 	uint64_t n_seqs, *bits;
 	rld_t *eqry = 0, *eref = 0;
 	while ((c = getopt(argc, argv, "k:K:o:t:")) >= 0) {
