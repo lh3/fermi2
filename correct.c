@@ -44,10 +44,10 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<30) - (1ULL<<20);
 
-	opt->a1 = .7;
-	opt->a2 = 7;
-	opt->err = 0.01;
-	opt->prior = 0.9;
+	opt->a1 = 0.05;
+	opt->a2 = 10;
+	opt->err = 0.005;
+	opt->prior = 0.99;
 }
 
 void kt_for(int n_threads, void (*func)(void*,int,int), void *shared, int n_items);
@@ -820,7 +820,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:")) >= 0) {
+	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:")) >= 0) {
 		if (c == 'k') opt.k = atoi(optarg);
 		else if (c == 'o') opt.min_occ = atoi(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
@@ -828,13 +828,14 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'g') opt.gap_penalty = atoi(optarg);
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'p') opt.prior = atof(optarg);
+		else if (c == 'e') opt.err = atof(optarg);
 	}
 	if (!(opt.k&1)) {
 		++opt.k;
 		fprintf(stderr, "[W::%s] -k must be an odd number; change -k to %d\n", __func__, opt.k);
 	}
 	if (optind == argc) {
-		fprintf(stderr, "Usage: fmc [-k kmer=%d] [-o minOcc=%d] [-t nThreads=%d] in.fmd\n",
+		fprintf(stderr, "Usage: fermi2 correct [-k kmer=%d] [-o minOcc=%d] [-t nThreads=%d] in.fmd\n",
 				opt.k, opt.min_occ, opt.n_threads);
 		return 1;
 	}
