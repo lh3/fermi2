@@ -19,7 +19,7 @@ static rldintv_t descend(const rld_t *e, int suf_len, int suf)
 	return ik;
 }
 
-static void collect_tips(const rld_t *e, uint64_t *sub, const rldintv_t *_ik, rldintv_v *stack)
+static void collect_tips(const rld_t *e, int min_k, int min_occ, uint64_t *sub, const rldintv_t *_ik, rldintv_v *stack)
 {
 	stack->n = 0;
 	kv_push(rldintv_t, *stack, *_ik);
@@ -28,8 +28,9 @@ static void collect_tips(const rld_t *e, uint64_t *sub, const rldintv_t *_ik, rl
 		rldintv_t ik, ok[6];
 		int c;
 		ik = kv_pop(*stack);
+		if (ik.info <= min_k && ik.x[2] < min_occ) continue;
 		rld_extend(e, &ik, ok, 1);
-		if (ok[0].x[2]) {
+		if (ok[0].x[2] && ik.info >= min_k) {
 			for (k = 0; k < ok[0].x[2]; ++k) {
 				x = k + ok[0].x[0];
 				p = sub + (x>>6);
@@ -38,11 +39,14 @@ static void collect_tips(const rld_t *e, uint64_t *sub, const rldintv_t *_ik, rl
 			}
 		}
 		for (c = 1; c <= 4; ++c)
-			if (ok[c].x[2]) kv_push(rldintv_t, *stack, ok[c]);
+			if (ok[c].x[2]) {
+				ok[c].info = ik.info + 1;
+				kv_push(rldintv_t, *stack, ok[c]);
+			}
 	}
 }
 
-static void contrast_core(const rld_t *eqry, const rld_t *eref, uint64_t *sub, int kmer, int min_occ, int suf_len, int suf)
+static void contrast_core(const rld_t *eqry, const rld_t *eref, uint64_t *sub, int min_k, int max_k, int min_occ, int suf_len, int suf)
 {
 	rldintv_v stack[2], tstack;
 	rldintv_t ik[2], ok[2][6];
@@ -62,8 +66,8 @@ static void contrast_core(const rld_t *eqry, const rld_t *eref, uint64_t *sub, i
 	while (stack[0].n) { // stack[0] and stack[1] are always of the same size
 		ik[0] = kv_pop(stack[0]);
 		ik[1] = kv_pop(stack[1]); // it is always true that ik[1].x[2] >= min_occ
-		if (ik[0].x[2] == 0) collect_tips(e[1], sub, &ik[1], &tstack);
-		else if (ik[1].info >= kmer) continue;
+		if (ik[0].x[2] == 0) collect_tips(e[1], min_k, min_occ, sub, &ik[1], &tstack);
+		else if (ik[1].info >= max_k) continue;
 		else {
 			rld_extend(e[0], &ik[0], ok[0], 1);
 			rld_extend(e[1], &ik[1], ok[1], 1);
@@ -78,7 +82,7 @@ static void contrast_core(const rld_t *eqry, const rld_t *eref, uint64_t *sub, i
 	free(stack[0].a); free(stack[1].a); free(tstack.a);
 }
 
-static void occflt_core(const rld_t *e, uint64_t *sub, int kmer, int min_occ, int suf_len, int suf)
+static void occflt_core(const rld_t *e, uint64_t *sub, int min_k, int max_k, int min_occ, int suf_len, int suf)
 {
 	rldintv_v stack, tstack;
 	rldintv_t ik, ok[6];
@@ -89,13 +93,13 @@ static void occflt_core(const rld_t *e, uint64_t *sub, int kmer, int min_occ, in
 	kv_push(rldintv_t, stack, ik);
 	while (stack.n) {
 		ik = kv_pop(stack);
-		if (ik.info < kmer) {
+		if (ik.info < max_k) {
 			int c;
 			rld_extend(e, &ik, ok, 1);
 			for (c = 1; c <= 4; ++c) {
 				if (ok[c].x[2] == 0) continue;
 				if (ok[c].x[2] < min_occ) {
-					collect_tips(e, sub, &ok[c], &tstack);
+					collect_tips(e, min_k, min_occ, sub, &ok[c], &tstack);
 					continue;
 				}
 				ok[c].info = ik.info + 1;
@@ -107,7 +111,7 @@ static void occflt_core(const rld_t *e, uint64_t *sub, int kmer, int min_occ, in
 }
 
 typedef struct {
-	int k, min_occ;
+	int min_k, max_k, min_occ;
 	const rld_t *eref, *eqry;
 	uint64_t *sub;
 } shared_t;
@@ -115,18 +119,18 @@ typedef struct {
 static void worker(void *data, int i, int tid)
 {
 	shared_t *d = (shared_t*)data;
-	if (!d->eref) occflt_core(d->eqry, d->sub, d->k, d->min_occ, SUF_LEN, i);
-	else contrast_core(d->eqry, d->eref, d->sub, d->k, d->min_occ, SUF_LEN, i);
+	if (!d->eref) occflt_core(d->eqry, d->sub, d->min_k, d->max_k, d->min_occ, SUF_LEN, i);
+	else contrast_core(d->eqry, d->eref, d->sub, d->min_k, d->max_k, d->min_occ, SUF_LEN, i);
 }
 
 void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n);
 
-uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int k, int min_occ, int n_threads)
+uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int min_k, int max_k, int min_occ, int n_threads)
 {
 	shared_t d;
-	assert(k > SUF_LEN);
+	assert(min_k > SUF_LEN && min_k < max_k);
 	d.sub = calloc((eqry->mcnt[1] + 63) / 64, 8);
-	d.k = k, d.min_occ = min_occ, d.eref = eref, d.eqry = eqry;
+	d.min_k = min_k, d.max_k = max_k, d.min_occ = min_occ, d.eref = eref, d.eqry = eqry;
 	kt_for(n_threads, worker, &d, 1<<SUF_LEN*2);
 	return d.sub;
 }
@@ -135,25 +139,26 @@ uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int k, int min_occ, int 
 
 int main_diff(int argc, char *argv[])
 {
-	int c, k = 51, min_occ = 2, n_threads = 1;
+	int c, min_k = 17, max_k = 51, min_occ = 2, n_threads = 1;
 	uint64_t n_seqs, *bits;
 	rld_t *eqry = 0, *eref = 0;
-	while ((c = getopt(argc, argv, "k:o:t:")) >= 0) {
-		if (c == 'k') k = atoi(optarg);
+	while ((c = getopt(argc, argv, "k:K:o:t:")) >= 0) {
+		if (c == 'k') min_k = atoi(optarg);
+		else if (c == 'K') max_k = atoi(optarg);
 		else if (c == 'o') min_occ = atoi(optarg);
 		else if (c == 't') n_threads = atoi(optarg);
 	}
 	if (optind == argc) {
 		if (strcmp(argv[0], "diff") == 0)
-			fprintf(stderr, "Usage: fermi2 diff [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld> <ref.rld>\n", k, min_occ);
-		else fprintf(stderr, "Usage: fermi2 %s [-k kmer=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld>\n", argv[0], k, min_occ);
+			fprintf(stderr, "Usage: fermi2 diff [-k minK=%d] [-K maxK=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld> <ref.rld>\n", min_k, max_k, min_occ);
+		else fprintf(stderr, "Usage: fermi2 %s [-k minK=%d] [-K maxK=%d] [-o minOcc=%d] [-t nThreads=1] <query.rld>\n", argv[0], min_k, max_k, min_occ);
 		return 1;
 	}
 	eqry = rld_restore(argv[optind]);
 	if (optind + 1 < argc)
 		eref = rld_restore(argv[optind+1]);
 	n_seqs = eqry->mcnt[1];
-	bits = fm_diff(eqry, eref, k, min_occ, n_threads);
+	bits = fm_diff(eqry, eref, min_k, max_k, min_occ, n_threads);
 	rld_destroy(eref);
 	rld_destroy(eqry);
 	fwrite(&n_seqs, 8, 1, stdout);
