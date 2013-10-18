@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FM_VERSION "r1"
+#define FM_VERSION "r11"
 
 int main_diff(int argc, char *argv[]);
 int main_sub(int argc, char *argv[]);
@@ -14,7 +14,7 @@ double realtime(void);
 
 int main(int argc, char *argv[])
 {
-	int ret, i;
+	int ret = 0, i;
 	double t_start;
 	liftrlimit();
 	if (argc == 1) {
@@ -25,11 +25,12 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "         sub      subset FM-index\n");
 		fprintf(stderr, "         unpack   unpack FM-index\n");
 		fprintf(stderr, "         correct  error correction\n");
-		fprintf(stderr, "\n");
+		fprintf(stderr, "         version  print version\n\n");
 		return 1;
 	}
 	t_start = realtime();
-	if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
+	if (strcmp(argv[1], "version") == 0) puts(FM_VERSION);
+	else if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "occflt") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "sub") == 0) ret = main_sub(argc-1, argv+1);
 	else if (strcmp(argv[1], "unpack") == 0) ret = main_unpack(argc-1, argv+1);
@@ -38,7 +39,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "[E::%s] unknown command\n", __func__);
 		return 1;
 	}
-	if (ret == 0) {
+	if (ret == 0 && strcmp(argv[1], "version")) {
 		fprintf(stderr, "[M::%s] Version: %s\n", __func__, FM_VERSION);
 		fprintf(stderr, "[M::%s] CMD:", __func__);
 		for (i = 0; i < argc; ++i)
