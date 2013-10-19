@@ -57,10 +57,11 @@ void fm_dfs_core(int n, rld_t **e, int is_half, int max_k, int suf_len, int suf,
 	// traverse
 	while (stack.n) {
 		int end, cont = 0x1E;
-		for (i = 0; i < n; ++i) t[i] = kv_pop(stack);
+		for (i = n - 1; i >= 0; --i) t[i] = kv_pop(stack);
 		if (t->d > max_k) continue;
 		path[max_k - t->d] = "\0ACGTN"[t->c];
 		for (i = 0; i < n; ++i) {
+			assert(t[i].k < e[i]->mcnt[0]);
 			rld_rank2a(e[i], t[i].k, t[i].l, tk[i].c, tl[i].c);
 			for (c = 0; c < 6; ++c) {
 				size[i].c[c] = tl[i].c[c] - tk[i].c[c];
@@ -149,5 +150,80 @@ int main_count(int argc, char *argv[])
 	if (!(d.max_k&1)) ++d.max_k;
 	fm_dfs(1, &e, d.max_k, 1, dfs_count, &d, n_threads);
 	rld_destroy(e);
+	return 0;
+}
+
+/***********
+ *** div ***
+ ***********/
+
+typedef struct {
+	int max_k, min_occ[2];
+	uint64_t *tot, *cnt[6];
+} dfs_diff_t;
+
+static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
+{
+	dfs_diff_t *d = (dfs_diff_t*)data;
+	int i, c, max_c[2], type[2], t;
+	uint64_t max[2], max2[2], sum[2];
+	for (c = 0; c < 6; ++c)
+		if (size[0].c[c] < d->min_occ[0] || size[1].c[c] < d->min_occ[1]) *cont &= ~(1<<c);
+	__sync_fetch_and_add(&d->tot[k], 1);
+	for (i = 0; i < 2; ++i) {
+		sum[i] = max[i] = max2[i] = 0, max_c[i] = 0;
+		for (c = 1; c <= 4; ++c) {
+			if (max[i] < size[i].c[c])
+				max[i] = size[i].c[c], max_c[i] = c;
+			else if (max2[i] < size[i].c[c])
+				max2[i] = size[i].c[c];
+			sum[i] += size[i].c[c];
+		}
+		if ((double)max[i] / sum[i] >= .9) type[i] = 0;
+		else if ((double)max2[i] / sum[i] >= .25 && max2[i] >= 3) type[i] = 1;
+		else type[i] = 2;
+	}
+	if (type[0] + type[1] == 0) {
+		t = max_c[0] == max_c[1]? 0 : 3;
+	} else if (type[0] + type[1] == 1) {
+		t = type[0] == 1? 1 : 2;
+	} else if (type[0] == 1 && type[1] == 1) {
+		t = 4;
+	} else t = 5;
+	__sync_fetch_and_add(&d->cnt[t][k], 1);
+}
+
+int main_diff2(int argc, char *argv[])
+{
+	dfs_diff_t d;
+	int c, i, k, n_threads = 1;
+	rld_t *e[2];
+	d.max_k = 51, d.min_occ[0] = d.min_occ[1] = 6;
+	while ((c = getopt(argc, argv, "k:o:t:")) >= 0) {
+		if (c == 'o') {
+			char *p;
+			d.min_occ[0] = strtol(optarg, &p, 10);
+			d.min_occ[1] = (*p && *(p+1))? strtol(p+1, &p, 10) : d.min_occ[1];
+		} else if (c == 'k') d.max_k = atoi(optarg);
+		else if (c == 't') n_threads = atoi(optarg);
+	}
+	if (optind + 2 > argc) {
+		fprintf(stderr, "Usage: fermi2 diff2 <in1.rld> <in2.rld>\n");
+		return 1;
+	}
+	d.tot = calloc(d.max_k, sizeof(uint64_t));
+	for (i = 0; i < 6; ++i)
+		d.cnt[i] = calloc(d.max_k, sizeof(uint64_t));
+	e[0] = rld_restore(argv[optind+0]);
+	e[1] = rld_restore(argv[optind+1]);
+	fm_dfs(2, e, d.max_k, 0, dfs_diff, &d, n_threads);
+	rld_destroy(e[0]);
+	rld_destroy(e[1]);
+	for (k = 1; k < d.max_k; ++k) {
+		printf("%d\t%lld", k, d.tot[k]);
+		for (i = 0; i < 6; ++i)
+			printf("\t%lld", d.cnt[i][k]);
+		printf("\n");
+	}
 	return 0;
 }

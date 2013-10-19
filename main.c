@@ -8,6 +8,7 @@ int main_sub(int argc, char *argv[]);
 int main_unpack(int argc, char *argv[]);
 int main_correct(int argc, char *argv[]);
 int main_count(int argc, char *argv[]);
+int main_diff2(int argc, char *argv[]);
 
 void liftrlimit(void);
 double cputime(void);
@@ -34,6 +35,7 @@ int main(int argc, char *argv[])
 	if (strcmp(argv[1], "version") == 0) puts(FM_VERSION);
 	else if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "occflt") == 0) ret = main_diff(argc-1, argv+1);
+	else if (strcmp(argv[1], "diff2") == 0) ret = main_diff2(argc-1, argv+1);
 	else if (strcmp(argv[1], "sub") == 0) ret = main_sub(argc-1, argv+1);
 	else if (strcmp(argv[1], "unpack") == 0) ret = main_unpack(argc-1, argv+1);
 	else if (strcmp(argv[1], "correct") == 0) ret = main_correct(argc-1, argv+1);
