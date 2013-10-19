@@ -49,9 +49,9 @@ void fm_dfs_core(int n, rld_t **e, int is_half, int max_k, int suf_len, int suf,
 			p->k = e[i]->cnt[c] + ok[c];
 			p->l = e[i]->cnt[c] + ol[c];
 		}
-		p->d = suf_len, p->c = c;
+		p->d = suf_len, p->c = (suf>>(suf_len-1)*2&3) + 1;
 	}
-	for (j = 0; j < suf_len; ++i)
+	for (j = 0; j < suf_len; ++j)
 		path[max_k - j - 1] = "ACGT"[suf>>j*2&3];
 	path[max_k] = 0;
 	// traverse
