@@ -148,5 +148,6 @@ int main_count(int argc, char *argv[])
 	e = rld_restore(argv[optind]);
 	if (!(d.max_k&1)) ++d.max_k;
 	fm_dfs(1, &e, d.max_k, 1, dfs_count, &d, n_threads);
+	rld_destroy(e);
 	return 0;
 }
