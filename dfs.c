@@ -165,7 +165,7 @@ typedef struct {
 static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 {
 	dfs_diff_t *d = (dfs_diff_t*)data;
-	int i, c, max_c[2], type[2], t;
+	int i, c, max_c[2], type[2], t = 7;
 	uint64_t max[2], max2[2], sum[2];
 	for (c = 0; c < 6; ++c)
 		if (size[0].c[c] < d->min_occ[0] || size[1].c[c] < d->min_occ[1]) *cont &= ~(1<<c);
