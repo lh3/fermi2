@@ -158,8 +158,8 @@ int main_count(int argc, char *argv[])
  ***********/
 
 typedef struct {
-	int max_k, min_occ[2];
-	uint64_t *tot, *cnt[6];
+	int max_k, min_het_occ, min_occ[2];
+	uint64_t *tot, *cnt[8];
 } dfs_diff_t;
 
 static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
@@ -180,31 +180,36 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 			sum[i] += size[i].c[c];
 		}
 		if ((double)max[i] / sum[i] >= .9) type[i] = 0;
-		else if ((double)max2[i] / sum[i] >= .25 && max2[i] >= 3) type[i] = 1;
+		else if ((double)max2[i] / sum[i] >= .25 && max2[i] >= d->min_het_occ) type[i] = 1;
 		else type[i] = 2;
 	}
 	if (type[0] + type[1] == 0) {
-		t = max_c[0] == max_c[1]? 0 : 3;
+		t = max_c[0] == max_c[1]? 0 : 1;
 	} else if (type[0] + type[1] == 1) {
-		t = type[0] == 1? 1 : 2;
+		t = type[0] == 1? 2 : 3;
 	} else if (type[0] == 1 && type[1] == 1) {
 		t = 4;
-	} else t = 5;
+	} else if (type[0] + type[1] == 4) t = 7;
+	else if (type[0] == 2) t = 5;
+	else if (type[1] == 2) t = 6;
 	__sync_fetch_and_add(&d->cnt[t][k], 1);
 }
+
+static const char *diff2_label[] = { "homS", "homD", "het1", "het2", "hetB", "ambi1", "ambi2", "ambiB" };
 
 int main_diff2(int argc, char *argv[])
 {
 	dfs_diff_t d;
 	int c, i, k, n_threads = 1;
 	rld_t *e[2];
-	d.max_k = 51, d.min_occ[0] = d.min_occ[1] = 6;
-	while ((c = getopt(argc, argv, "k:o:t:")) >= 0) {
+	d.max_k = 51, d.min_het_occ = 3, d.min_occ[0] = d.min_occ[1] = 6;
+	while ((c = getopt(argc, argv, "k:o:t:h:")) >= 0) {
 		if (c == 'o') {
 			char *p;
 			d.min_occ[0] = strtol(optarg, &p, 10);
 			d.min_occ[1] = (*p && *(p+1))? strtol(p+1, &p, 10) : d.min_occ[1];
 		} else if (c == 'k') d.max_k = atoi(optarg);
+		else if (c == 'h') d.min_het_occ = atoi(optarg);
 		else if (c == 't') n_threads = atoi(optarg);
 	}
 	if (optind + 2 > argc) {
@@ -212,17 +217,20 @@ int main_diff2(int argc, char *argv[])
 		return 1;
 	}
 	d.tot = calloc(d.max_k, sizeof(uint64_t));
-	for (i = 0; i < 6; ++i)
+	for (i = 0; i < 8; ++i)
 		d.cnt[i] = calloc(d.max_k, sizeof(uint64_t));
 	e[0] = rld_restore(argv[optind+0]);
 	e[1] = rld_restore(argv[optind+1]);
 	fm_dfs(2, e, d.max_k, 0, dfs_diff, &d, n_threads);
 	rld_destroy(e[0]);
 	rld_destroy(e[1]);
+	printf("#k\ttotal");
+	for (i = 0; i < 8; ++i) printf("\t%s", diff2_label[i]);
+	printf("\n");
 	for (k = 1; k < d.max_k; ++k) {
-		printf("%d\t%lld", k, d.tot[k]);
-		for (i = 0; i < 6; ++i)
-			printf("\t%lld", d.cnt[i][k]);
+		printf("%d\t%ld", k, (long)d.tot[k]);
+		for (i = 0; i < 8; ++i)
+			printf("\t%ld", (long)d.cnt[i][k]);
 		printf("\n");
 	}
 	return 0;
