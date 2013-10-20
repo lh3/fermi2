@@ -191,16 +191,16 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 		n[2] = size[0].c[max2_c], n[3] = size[1].c[max2_c];
 		if (n[0] == 0 || n[1] == 0 || n[2] == 0 || n[3] == 0) {
 			kt_fisher_exact(n[0], n[1], n[2], n[3], &left, &right, &two);
-			t = 2;
-			if (two < 5e-2) t = 3;
-			else if (two < 2e-2) t = 4;
-			else if (two < 1e-2) t = 5;
-			else if (two < 5e-3) t = 6;
-			else if (two < 2e-3) t = 7;
-			else if (two < 1e-3) t = 8;
-			else if (two < 5e-4) t = 9;
+			__sync_fetch_and_add(&d->cnt[2][k], 1);
+			if (two < 1e-4) t = 11;
 			else if (two < 2e-4) t = 10;
-			else if (two < 1e-4) t = 11;
+			else if (two < 5e-4) t = 9;
+			else if (two < 1e-3) t = 8;
+			else if (two < 2e-3) t = 7;
+			else if (two < 5e-3) t = 6;
+			else if (two < 1e-2) t = 5;
+			else if (two < 2e-2) t = 4;
+			else if (two < 5e-2) t = 3;
 		} else t = 1;
 	} else t = 0; // no alternative base
 	__sync_fetch_and_add(&d->cnt[t][k], 1);
