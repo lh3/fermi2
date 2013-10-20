@@ -166,48 +166,42 @@ typedef struct {
 
 static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 {
+	extern double kt_fisher_exact(int n11, int n12, int n21, int n22, double *_left, double *_right, double *two);
 	dfs_diff_t *d = (dfs_diff_t*)data;
-	int i, c, max_c[2], max_c2[2], type[2], t = -1, is_diff[2];
-	uint64_t max[2], max2[2], sum[2];
+	int c, max_c, max2_c, t;
+	uint64_t max, max2;
+	double left, right, two;
 	for (c = 0; c < 6; ++c)
 		if (size[0].c[c] < d->min_occ[0] || size[1].c[c] < d->min_occ[1]) *cont &= ~(1<<c);
 	__sync_fetch_and_add(&d->tot[k], 1);
-	for (i = 0; i < 2; ++i) {
-		sum[i] = max[i] = max2[i] = 0, max_c[i] = max_c2[i] = 0;
-		for (c = 1; c <= 4; ++c) {
-			if (max[i] < size[i].c[c])
-				max2[i] = max[i], max_c2[i] = max_c[i], max[i] = size[i].c[c], max_c[i] = c;
-			else if (max2[i] < size[i].c[c])
-				max2[i] = size[i].c[c], max_c2[i] = c;
-			sum[i] += size[i].c[c];
-		}
-		if ((double)max[i] / sum[i] >= .9) type[i] = 0;
-		else if ((double)max2[i] / sum[i] >= .25 && max2[i] >= d->min_het_occ) type[i] = 1;
-		else type[i] = 2;
+	max = max2 = 0; max_c = max2_c = 0;
+	for (c = 1; c <= 4; ++c) {
+		if (max < size[0].c[c] + size[1].c[c])
+			max2 = max, max2_c = max_c, max = size[0].c[c] + size[1].c[c], max_c = c;
+		else if (max2 < size[0].c[c] + size[1].c[c])
+			max2 = size[0].c[c] + size[1].c[c], max2_c = c;
 	}
-	is_diff[0] = is_diff[1] = 0;
-	if (type[0] + type[1] == 0) {
-		t = max_c[0] == max_c[1]? 0 : 1;
-	} else if (type[0] + type[1] == 1) {
-		t = type[0] == 1? 2 : 3;
-	} else if (type[0] == 1 && type[1] == 1) {
-		t = 4;
-	} else if (type[0] + type[1] == 4) t = 7;
-	else if (type[0] == 2) t = 5;
-	else if (type[1] == 2) t = 6;
-	if (max[0]  >= d->min_het_occ && size[1].c[max_c[0]]  == 0) is_diff[0] = 1;
-	if (max2[0] >= d->min_het_occ && size[1].c[max_c2[0]] == 0) is_diff[0] = 1;
-	if (max[1]  >= d->min_het_occ && size[0].c[max_c[1]]  == 0) is_diff[1] = 1;
-	if (max2[1] >= d->min_het_occ && size[0].c[max_c2[1]] == 0) is_diff[1] = 1;
-	if (is_diff[0] + is_diff[1]) {
-		if (is_diff[0] + is_diff[1] == 2) t = 10;
-		else if (is_diff[0]) t = 8;
-		else t = 9;
-	}
+	if (max2_c > 0) {
+		int n[4];
+		n[0] = size[0].c[max_c],  n[1] = size[1].c[max_c];
+		n[2] = size[0].c[max2_c], n[3] = size[1].c[max2_c];
+		if (n[0] == 0 || n[1] == 0 || n[2] == 0 || n[3] == 0) {
+			kt_fisher_exact(n[0], n[1], n[2], n[3], &left, &right, &two);
+			if (two < 5e-2) t = 2;
+			else if (two < 2e-2) t = 3;
+			else if (two < 1e-2) t = 4;
+			else if (two < 5e-3) t = 5;
+			else if (two < 2e-3) t = 6;
+			else if (two < 1e-3) t = 7;
+			else if (two < 5e-4) t = 8;
+			else if (two < 2e-4) t = 9;
+			else if (two < 1e-4) t = 10;
+		} else t = 1;
+	} else t = 0; // no alternative base
 	__sync_fetch_and_add(&d->cnt[t][k], 1);
 }
 
-static const char *diff2_label[] = { "homS", "homD", "het1", "het2", "hetB", "ambi1", "ambi2", "ambiB", "diff1", "diff2", "diffB" };
+static const char *diff2_label[] = { "noAlt", "noZero", ".05", ".02", ".01", ".005", ".002", ".001", ".0005", ".0002", ".0001" };
 
 int main_diff2(int argc, char *argv[])
 {
