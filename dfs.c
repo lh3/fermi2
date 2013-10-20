@@ -70,7 +70,7 @@ void fm_dfs_core(int n, rld_t **e, int is_half, int max_k, int suf_len, int suf,
 				if (size[i].c[c] == 0) cont &= ~(1<<c);
 			}
 		}
-		func(data, t->d, path, size, &cont);
+		func(data, t->d, path + (max_k - t->d), size, &cont);
 		end = is_half && t->d == max_k>>1? 2 : 4;
 		for (c = 1; c <= end; ++c) {
 			if ((cont>>c&1) == 0) continue;
@@ -164,7 +164,7 @@ int main_count(int argc, char *argv[])
 #define DIFF_CLASS 12
 
 typedef struct {
-	int max_k, min_het_occ, min_occ[2];
+	int max_k, min_het_occ, out_k, min_occ[2];
 	uint64_t *tot, *cnt[DIFF_CLASS];
 } dfs_diff_t;
 
@@ -173,17 +173,18 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 	extern double kt_fisher_exact(int n11, int n12, int n21, int n22, double *_left, double *_right, double *two);
 	dfs_diff_t *d = (dfs_diff_t*)data;
 	int c, max_c, max2_c, t;
-	uint64_t max, max2;
+	uint64_t max, max2, sum[2];
 	double left, right, two;
 	for (c = 0; c < 6; ++c)
 		if (size[0].c[c] < d->min_occ[0] || size[1].c[c] < d->min_occ[1]) *cont &= ~(1<<c);
 	__sync_fetch_and_add(&d->tot[k], 1);
-	max = max2 = 0; max_c = max2_c = 0;
+	max = max2 = 0; max_c = max2_c = 0; sum[0] = sum[1] = 0;
 	for (c = 1; c <= 4; ++c) {
 		if (max < size[0].c[c] + size[1].c[c])
 			max2 = max, max2_c = max_c, max = size[0].c[c] + size[1].c[c], max_c = c;
 		else if (max2 < size[0].c[c] + size[1].c[c])
 			max2 = size[0].c[c] + size[1].c[c], max2_c = c;
+		sum[0] += size[0].c[c], sum[1] += size[1].c[c];
 	}
 	if (max2_c > 0) {
 		int n[4];
@@ -192,6 +193,7 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 		if (n[0] == 0 || n[1] == 0 || n[2] == 0 || n[3] == 0) {
 			kt_fisher_exact(n[0], n[1], n[2], n[3], &left, &right, &two);
 			__sync_fetch_and_add(&d->cnt[2][k], 1);
+			t = -1;
 			if (two < 1e-4) t = 11;
 			else if (two < 2e-4) t = 10;
 			else if (two < 5e-4) t = 9;
@@ -201,9 +203,11 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 			else if (two < 1e-2) t = 5;
 			else if (two < 2e-2) t = 4;
 			else if (two < 5e-2) t = 3;
+			if (k == d->out_k && two < .01)
+				printf("%s\t%ld\t%d\t%d\t%ld\t%d\t%d\n", path, (long)sum[0], n[0], n[2], (long)sum[1], n[1], n[3]);
 		} else t = 1;
 	} else t = 0; // no alternative base
-	__sync_fetch_and_add(&d->cnt[t][k], 1);
+	if (t >= 0) __sync_fetch_and_add(&d->cnt[t][k], 1);
 }
 
 static const char *diff2_label[] = { "noAlt", "noZero", "tested", ".05", ".02", ".01", ".005", ".002", ".001", ".0005", ".0002", ".0001" };
@@ -213,8 +217,8 @@ int main_diff2(int argc, char *argv[])
 	dfs_diff_t d;
 	int c, i, k, n_threads = 1;
 	rld_t *e[2];
-	d.max_k = 51, d.min_het_occ = 3, d.min_occ[0] = d.min_occ[1] = 6;
-	while ((c = getopt(argc, argv, "k:o:t:h:v:")) >= 0) {
+	d.max_k = 51, d.min_het_occ = 3, d.out_k = -1, d.min_occ[0] = d.min_occ[1] = 6;
+	while ((c = getopt(argc, argv, "k:o:t:h:v:K:")) >= 0) {
 		if (c == 'o') {
 			char *p;
 			d.min_occ[0] = strtol(optarg, &p, 10);
@@ -223,6 +227,7 @@ int main_diff2(int argc, char *argv[])
 		else if (c == 'h') d.min_het_occ = atoi(optarg);
 		else if (c == 't') n_threads = atoi(optarg);
 		else if (c == 'v') dfs_verbose = atoi(optarg);
+		else if (c == 'K') d.out_k = atoi(optarg);
 	}
 	if (optind + 2 > argc) {
 		fprintf(stderr, "Usage: fermi2 diff2 <in1.rld> <in2.rld>\n");
