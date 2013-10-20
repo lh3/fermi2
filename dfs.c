@@ -4,6 +4,8 @@
 #include "kvec.h"
 #include "rld0.h"
 
+static int dfs_verbose = 3;
+
 /******************
  *** DFS engine ***
  ******************/
@@ -96,6 +98,8 @@ void dfs_worker(void *data, int suf, int tid)
 {
 	shared_t *d = (shared_t*)data;
 	fm_dfs_core(d->n, d->e, d->is_half, d->max_k, d->suf_len, suf, d->func, d->data);
+	if (dfs_verbose >= 4)
+		fprintf(stderr, "[M::%s] processed suffix %d in thread %d\n", __func__, suf, tid);
 }
 
 void fm_dfs(int n, rld_t **e, int max_k, int is_half, fmdfs_f func, void *data, int n_threads)
@@ -157,7 +161,7 @@ int main_count(int argc, char *argv[])
  *** div ***
  ***********/
 
-#define DIFF_CLASS 11
+#define DIFF_CLASS 12
 
 typedef struct {
 	int max_k, min_het_occ, min_occ[2];
@@ -187,21 +191,22 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 		n[2] = size[0].c[max2_c], n[3] = size[1].c[max2_c];
 		if (n[0] == 0 || n[1] == 0 || n[2] == 0 || n[3] == 0) {
 			kt_fisher_exact(n[0], n[1], n[2], n[3], &left, &right, &two);
-			if (two < 5e-2) t = 2;
-			else if (two < 2e-2) t = 3;
-			else if (two < 1e-2) t = 4;
-			else if (two < 5e-3) t = 5;
-			else if (two < 2e-3) t = 6;
-			else if (two < 1e-3) t = 7;
-			else if (two < 5e-4) t = 8;
-			else if (two < 2e-4) t = 9;
-			else if (two < 1e-4) t = 10;
+			t = 2;
+			if (two < 5e-2) t = 3;
+			else if (two < 2e-2) t = 4;
+			else if (two < 1e-2) t = 5;
+			else if (two < 5e-3) t = 6;
+			else if (two < 2e-3) t = 7;
+			else if (two < 1e-3) t = 8;
+			else if (two < 5e-4) t = 9;
+			else if (two < 2e-4) t = 10;
+			else if (two < 1e-4) t = 11;
 		} else t = 1;
 	} else t = 0; // no alternative base
 	__sync_fetch_and_add(&d->cnt[t][k], 1);
 }
 
-static const char *diff2_label[] = { "noAlt", "noZero", ".05", ".02", ".01", ".005", ".002", ".001", ".0005", ".0002", ".0001" };
+static const char *diff2_label[] = { "noAlt", "noZero", "tested", ".05", ".02", ".01", ".005", ".002", ".001", ".0005", ".0002", ".0001" };
 
 int main_diff2(int argc, char *argv[])
 {
@@ -209,7 +214,7 @@ int main_diff2(int argc, char *argv[])
 	int c, i, k, n_threads = 1;
 	rld_t *e[2];
 	d.max_k = 51, d.min_het_occ = 3, d.min_occ[0] = d.min_occ[1] = 6;
-	while ((c = getopt(argc, argv, "k:o:t:h:")) >= 0) {
+	while ((c = getopt(argc, argv, "k:o:t:h:v:")) >= 0) {
 		if (c == 'o') {
 			char *p;
 			d.min_occ[0] = strtol(optarg, &p, 10);
@@ -217,6 +222,7 @@ int main_diff2(int argc, char *argv[])
 		} else if (c == 'k') d.max_k = atoi(optarg);
 		else if (c == 'h') d.min_het_occ = atoi(optarg);
 		else if (c == 't') n_threads = atoi(optarg);
+		else if (c == 'v') dfs_verbose = atoi(optarg);
 	}
 	if (optind + 2 > argc) {
 		fprintf(stderr, "Usage: fermi2 diff2 <in1.rld> <in2.rld>\n");
