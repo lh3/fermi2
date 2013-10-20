@@ -157,32 +157,35 @@ int main_count(int argc, char *argv[])
  *** div ***
  ***********/
 
+#define DIFF_CLASS 11
+
 typedef struct {
 	int max_k, min_het_occ, min_occ[2];
-	uint64_t *tot, *cnt[8];
+	uint64_t *tot, *cnt[DIFF_CLASS];
 } dfs_diff_t;
 
 static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 {
 	dfs_diff_t *d = (dfs_diff_t*)data;
-	int i, c, max_c[2], type[2], t = 7;
+	int i, c, max_c[2], max_c2[2], type[2], t = -1, is_diff[2];
 	uint64_t max[2], max2[2], sum[2];
 	for (c = 0; c < 6; ++c)
 		if (size[0].c[c] < d->min_occ[0] || size[1].c[c] < d->min_occ[1]) *cont &= ~(1<<c);
 	__sync_fetch_and_add(&d->tot[k], 1);
 	for (i = 0; i < 2; ++i) {
-		sum[i] = max[i] = max2[i] = 0, max_c[i] = 0;
+		sum[i] = max[i] = max2[i] = 0, max_c[i] = max_c2[i] = 0;
 		for (c = 1; c <= 4; ++c) {
 			if (max[i] < size[i].c[c])
-				max[i] = size[i].c[c], max_c[i] = c;
+				max2[i] = max[i], max_c2[i] = max_c[i], max[i] = size[i].c[c], max_c[i] = c;
 			else if (max2[i] < size[i].c[c])
-				max2[i] = size[i].c[c];
+				max2[i] = size[i].c[c], max_c2[i] = c;
 			sum[i] += size[i].c[c];
 		}
 		if ((double)max[i] / sum[i] >= .9) type[i] = 0;
 		else if ((double)max2[i] / sum[i] >= .25 && max2[i] >= d->min_het_occ) type[i] = 1;
 		else type[i] = 2;
 	}
+	is_diff[0] = is_diff[1] = 0;
 	if (type[0] + type[1] == 0) {
 		t = max_c[0] == max_c[1]? 0 : 1;
 	} else if (type[0] + type[1] == 1) {
@@ -192,10 +195,19 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 	} else if (type[0] + type[1] == 4) t = 7;
 	else if (type[0] == 2) t = 5;
 	else if (type[1] == 2) t = 6;
+	if (max[0]  >= d->min_het_occ && size[1].c[max_c[0]]  == 0) is_diff[0] = 1;
+	if (max2[0] >= d->min_het_occ && size[1].c[max_c2[0]] == 0) is_diff[0] = 1;
+	if (max[1]  >= d->min_het_occ && size[0].c[max_c[1]]  == 0) is_diff[1] = 1;
+	if (max2[1] >= d->min_het_occ && size[0].c[max_c2[1]] == 0) is_diff[1] = 1;
+	if (is_diff[0] + is_diff[1]) {
+		if (is_diff[0] + is_diff[1] == 2) t = 10;
+		else if (is_diff[0]) t = 8;
+		else t = 9;
+	}
 	__sync_fetch_and_add(&d->cnt[t][k], 1);
 }
 
-static const char *diff2_label[] = { "homS", "homD", "het1", "het2", "hetB", "ambi1", "ambi2", "ambiB" };
+static const char *diff2_label[] = { "homS", "homD", "het1", "het2", "hetB", "ambi1", "ambi2", "ambiB", "diff1", "diff2", "diffB" };
 
 int main_diff2(int argc, char *argv[])
 {
@@ -217,7 +229,7 @@ int main_diff2(int argc, char *argv[])
 		return 1;
 	}
 	d.tot = calloc(d.max_k, sizeof(uint64_t));
-	for (i = 0; i < 8; ++i)
+	for (i = 0; i < DIFF_CLASS; ++i)
 		d.cnt[i] = calloc(d.max_k, sizeof(uint64_t));
 	e[0] = rld_restore(argv[optind+0]);
 	e[1] = rld_restore(argv[optind+1]);
@@ -225,11 +237,11 @@ int main_diff2(int argc, char *argv[])
 	rld_destroy(e[0]);
 	rld_destroy(e[1]);
 	printf("#k\ttotal");
-	for (i = 0; i < 8; ++i) printf("\t%s", diff2_label[i]);
+	for (i = 0; i < DIFF_CLASS; ++i) printf("\t%s", diff2_label[i]);
 	printf("\n");
 	for (k = 1; k < d.max_k; ++k) {
 		printf("%d\t%ld", k, (long)d.tot[k]);
-		for (i = 0; i < 8; ++i)
+		for (i = 0; i < DIFF_CLASS; ++i)
 			printf("\t%ld", (long)d.cnt[i][k]);
 		printf("\n");
 	}
