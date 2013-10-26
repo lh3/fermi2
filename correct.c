@@ -667,9 +667,12 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 	s.penalty = 0, s.pen_diff = 0, s.n_diff = 0;
 	// find the first k-mer
 	memset(&z, 0, sizeof(echeap1_t));
-	for (z.i = 0, l = 0; z.i < a->seq.n && l < opt->k; ++z.i)
+	for (z.i = 0, l = 0; z.i < a->seq.n;) {
 		if (a->seq.a[z.i].b > 3) l = 0, z.kmer[0] = z.kmer[1] = 0;
 		else ++l, append_to_kmer(opt->k, z.kmer, a->seq.a[z.i].b);
+		if (++z.i == a->seq.n) break;
+		if (l >= opt->k && kmer_lookup(opt->k, opt->suf_len, z.kmer, h, a->cache) >= 0) break;
+	}
 	s.start = z.i;
 	if (z.i == a->seq.n) return s;
 	z.k = -1; // the first k-mer is not on the stack
@@ -758,7 +761,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 typedef struct {
 	int n_diff, q_diff;
 	int sub_pdiff[2], sub_ndiff[2];
-	int penalty[2];
+	int penalty[2], start[2];
 } fmc_ecstat_t;
 
 void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
@@ -775,8 +778,8 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	fmc_seq_revcomp(&a->seq);
 	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
-	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff, ecs->penalty[0] = st[0].penalty;
-	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff, ecs->penalty[1] = st[1].penalty;
+	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff, ecs->penalty[0] = st[0].penalty, ecs->start[0] = st[0].start;
+	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff, ecs->penalty[1] = st[1].penalty, ecs->start[1] = st[1].start;
 	if (a->seq.n > a->ori.n) {
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
@@ -825,9 +828,9 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 			correct_func(&f, i, 0);
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
-		printf(">%ld_%d_%d_%d:%d:%d_%d:%d:%d %s\n", (long)(start + i), f.ecs[i].n_diff, f.ecs[i].q_diff,
-				f.ecs[i].penalty[0], f.ecs[i].sub_ndiff[0], f.ecs[i].sub_pdiff[0],
-				f.ecs[i].penalty[1], f.ecs[i].sub_ndiff[1], f.ecs[i].sub_pdiff[1], f.name[i]);
+		printf("@%ld_%d_%d_%d:%d:%d:%d_%d:%d:%d:%d %s\n", (long)(start + i), f.ecs[i].n_diff, f.ecs[i].q_diff,
+				f.ecs[i].start[0], f.ecs[i].penalty[0], f.ecs[i].sub_ndiff[0], f.ecs[i].sub_pdiff[0],
+				f.ecs[i].start[1], f.ecs[i].penalty[1], f.ecs[i].sub_ndiff[1], f.ecs[i].sub_pdiff[1], f.name[i]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
