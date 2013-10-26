@@ -204,7 +204,7 @@ static void dfs_diff(void *data, int k, char *path, fmint6_t *size, int *cont)
 			else if (two < 2e-2) t = 4;
 			else if (two < 5e-2) t = 3;
 			if (k == d->out_k && two < .01)
-				printf("%s\t%ld\t%d\t%d\t%ld\t%d\t%d\n", path, (long)sum[0], n[0], n[2], (long)sum[1], n[1], n[3]);
+				printf("%s\t%.8f\t%ld\t%d\t%d\t%ld\t%d\t%d\n", path, two, (long)sum[0], n[0], n[2], (long)sum[1], n[1], n[3]);
 		} else t = 1;
 	} else t = 0; // no alternative base
 	if (t >= 0) __sync_fetch_and_add(&d->cnt[t][k], 1);

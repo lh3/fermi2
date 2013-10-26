@@ -20,7 +20,7 @@
 int fmc_verbose = 3;
 
 typedef struct {
-	int k, suf_len, min_occ, n_threads, defQ;
+	int k, suf_len, min_occ, n_threads, ecQ, defQ;
 	int gap_penalty;
 	int max_heap_size;
 	int max_penalty;
@@ -37,7 +37,8 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->suf_len = 1;
 	opt->min_occ = 3;
 	opt->n_threads = 1;
-	opt->defQ = 20;
+	opt->defQ = 17;
+	opt->ecQ = 20;
 	opt->gap_penalty = 40;
 	opt->max_heap_size = 256;
 	opt->max_penalty = 120;
@@ -627,9 +628,9 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 	}
 }
 
-static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
+static int path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 {
-	int i1 = 0, i2 = 0;
+	int i1 = 0, i2 = 0, n_diff = 0;
 	while (i1 < s1->n && i2 < s2->n) {
 		ecbase_t *b1;
 		const ecbase_t *b2;
@@ -638,30 +639,39 @@ static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 		if (b1->b != b2->b || b1->i != b2->i) {
 			b1->q = b1->q > b2->q? b1->q - b2->q : 0;
 			b1->q = b1->q < diff? b1->q : diff;
+			++n_diff;
 		}
-		if (b1->state == STATE_I && b2->state != STATE_I) ++i1;
-		else if (b2->state == STATE_I && b1->state != STATE_I) ++i2;
+		if (b1->state == STATE_I && b2->state != STATE_I) ++i1, ++n_diff;
+		else if (b2->state == STATE_I && b1->state != STATE_I) ++i2, ++n_diff;
 		else ++i1, ++i2;
 	}
 	for (; i1 < s1->n; ++i1) {
 		ecbase_t *b = &s1->a[i1];
 		b->q = b->q < diff? b->q : diff;
 	}
+	return n_diff;
 }
 
-static int fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fmc_aux_t *a)
+typedef struct {
+	int penalty, pen_diff, n_diff, start;
+} correct1_stat_t;
+
+static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fmc_aux_t *a)
 {
 	echeap1_t z;
 	int l, path_end[2] = {-1,-1}, max_i = 0;
+	correct1_stat_t s;
 
 	kh_clear(kache, a->cache);
 	a->heap.n = a->stack.n = 0;
+	s.penalty = 0, s.pen_diff = 0, s.n_diff = 0;
 	// find the first k-mer
 	memset(&z, 0, sizeof(echeap1_t));
 	for (z.i = 0, l = 0; z.i < a->seq.n && l < opt->k; ++z.i)
 		if (a->seq.a[z.i].b > 3) l = 0, z.kmer[0] = z.kmer[1] = 0;
 		else ++l, append_to_kmer(opt->k, z.kmer, a->seq.a[z.i].b);
-	if (z.i == a->seq.n) return -1;
+	s.start = z.i;
+	if (z.i == a->seq.n) return s;
 	z.k = -1; // the first k-mer is not on the stack
 	kv_push(echeap1_t, a->heap, z);
 	// search for the best path
@@ -728,32 +738,45 @@ static int fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fmc_aux_t *a)
 	// backtrack
 	if (path_end[0] >= 0) {
 //		int i;
+		s.penalty = a->stack.a[path_end[0]].penalty;
 		path_backtrack(&a->stack, path_end[0], &a->seq, &a->tmp[0]);
 //		for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
 //		for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
 		if (path_end[1] >= 0) {
+			s.pen_diff = a->stack.a[path_end[1]].penalty - s.penalty;
 			path_backtrack(&a->stack, path_end[1], &a->seq, &a->tmp[1]);
-			path_adjustq(a->stack.a[path_end[1]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
+			s.n_diff = path_adjustq(a->stack.a[path_end[1]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
 //			for (i = 0; i < a->tmp[1].n; ++i) fputc("ACGTN"[a->tmp[1].a[i].b], stderr); fputc('\n', stderr);
 //			for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
 //			for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
-		}
+		} else s.pen_diff = opt->max_penalty_diff, s.n_diff = 0;
 		fmc_seq_cpy(&a->seq, &a->tmp[0]);
 	}
-	return 0;
+	return s;
 }
 
-void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a)
+typedef struct {
+	int n_diff, q_diff;
+	int sub_pdiff[2], sub_ndiff[2];
+	int penalty[2];
+} fmc_ecstat_t;
+
+void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
 {
 	fmc_aux_t *_a = 0;
 	int i;
+	correct1_stat_t st[2];
+
+	ecs->n_diff = ecs->q_diff = 0;
 	if (a == 0) a = _a = fmc_aux_init();
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
 	fmc_seq_cpy(&a->seq, &a->ori);
-	fmc_correct1_aux(opt, h, a);
+	st[0] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
-	fmc_correct1_aux(opt, h, a);
+	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
+	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff, ecs->penalty[0] = st[0].penalty;
+	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff, ecs->penalty[1] = st[1].penalty;
 	if (a->seq.n > a->ori.n) {
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
@@ -761,6 +784,8 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	for (i = 0; i < a->seq.n; ++i) {
 		ecbase_t *b = &a->seq.a[i];
 		if (b->state != STATE_N || a->ori.a[b->i].b < 4) {
+			if (b->b != a->ori.a[b->i].b)
+				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
 			(*s)[i] = b->b == a->ori.a[b->i].b? "ACGTN"[b->b] : "acgtn"[b->b];
 			(*q)[i] = (b->q < FMC_MAX_Q? b->q : FMC_MAX_Q) + 33;
 		} else (*s)[i] = 'N', (*q)[i] = 33;
@@ -773,23 +798,26 @@ typedef struct {
 	const fmc_opt_t *opt;
 	fmc_hash_t **h;
 	char **name, **s, **q;
+	fmc_ecstat_t *ecs;
 	fmc_aux_t **a;
+	int64_t start;
 } for_correct_t;
 
 static void correct_func(void *data, int i, int tid)
 {
 	for_correct_t *f = (for_correct_t*)data;
 	if (fmc_verbose >= 5) fprintf(stderr, ">%s\n", f->name[i]);
-	fmc_correct1(f->opt, f->h, &f->s[i], &f->q[i], f->a[tid]);
+	fmc_correct1(f->opt, f->h, &f->s[i], &f->q[i], f->a[tid], &f->ecs[i]);
 }
 
-void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q, char **name)
+void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, char **s, char **q, char **name)
 {
 	for_correct_t f;
 	int i;
 
 	f.a = calloc(opt->n_threads, sizeof(void*));
 	f.opt = opt, f.h = h, f.name = name, f.s = s, f.q = q;
+	f.ecs = calloc(n, sizeof(fmc_ecstat_t));
 	for (i = 0; i < opt->n_threads; ++i)
 		f.a[i] = fmc_aux_init();
 	if (opt->n_threads == 1) {
@@ -797,7 +825,9 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q
 			correct_func(&f, i, 0);
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
-		putchar('>'); puts(f.name[i]);
+		printf(">%ld_%d_%d_%d:%d:%d_%d:%d:%d %s\n", (long)(start + i), f.ecs[i].n_diff, f.ecs[i].q_diff,
+				f.ecs[i].penalty[0], f.ecs[i].sub_ndiff[0], f.ecs[i].sub_pdiff[0],
+				f.ecs[i].penalty[1], f.ecs[i].sub_ndiff[1], f.ecs[i].sub_pdiff[1], f.name[i]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
@@ -816,11 +846,12 @@ int main_correct(int argc, char *argv[])
 	fmc_opt_t opt;
 	fmc64_v *kmer;
 	char *fn_kmer = 0;
+	int64_t start = 0;
 
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:")) >= 0) {
+	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.k = atoi(optarg);
 		else if (c == 'o') opt.min_occ = atoi(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
@@ -829,6 +860,7 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'p') opt.prior = atof(optarg);
 		else if (c == 'e') opt.err = atof(optarg);
+		else if (c == 'q') opt.ecQ = atoi(optarg);
 	}
 	if (!(opt.k&1)) {
 		++opt.k;
@@ -867,7 +899,8 @@ int main_correct(int argc, char *argv[])
 		fp = gzopen(argv[optind+1], "r");
 		ks = kseq_init(fp);
 		while ((b = fmc_batch_read(ks, opt.batch_size)) != 0) {
-			fmc_correct(&opt, h, b->n, b->s, b->q, b->name);
+			fmc_correct(&opt, h, start, b->n, b->s, b->q, b->name);
+			start += b->n;
 			fmc_batch_destroy(b);
 		}
 		kseq_destroy(ks);
