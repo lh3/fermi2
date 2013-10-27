@@ -443,7 +443,7 @@ void fmc_batch_destroy(fmc_batch_t *b)
 
 typedef struct {
 	uint8_t b:4, state:4;
-	uint8_t q;
+	uint8_t q, f;
 	int i;
 } ecbase_t;
 
@@ -460,8 +460,9 @@ int fmc_seq_conv(const char *s, const char *q, int defQ, ecseq_t *seq)
 		c->b = seq_nt6_table[(int)s[i]] - 1;
 		c->q = q? *q - 33 : defQ;
 		c->q = c->q < FMC_MAX_Q? c->q : FMC_MAX_Q;
-		c->state = STATE_M;
+		c->state = STATE_N;
 		c->i = i;
+		c->f = 0;
 	}
 	return l;
 }
@@ -653,7 +654,7 @@ static int path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 }
 
 typedef struct {
-	int penalty, pen_diff, n_diff, start;
+	int penalty, pen_diff, n_diff;
 } correct1_stat_t;
 
 static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fmc_aux_t *a)
@@ -673,7 +674,6 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		if (++z.i == a->seq.n) break;
 		if (l >= opt->k && kmer_lookup(opt->k, opt->suf_len, z.kmer, h, a->cache) >= 0) break;
 	}
-	s.start = z.i;
 	if (z.i == a->seq.n) return s;
 	z.k = -1; // the first k-mer is not on the stack
 	kv_push(echeap1_t, a->heap, z);
@@ -708,6 +708,8 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->k, a, &z, b1, STATE_M, 3, q1);
 				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1, 0);
+			} else if (opt->ecQ > 0 && c->q >= opt->ecQ) {
+				update_aux(opt->k, a, &z, c->b, STATE_M, q1, (int)c->q > q1? (int)c->q - q1 : 0);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				int diff = (int)c->q - q1;
 				if (!is_excessive || q1 <= c->q)
@@ -723,19 +725,19 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			} else {
 				int diff = (int)c->q - (q1 + q2);
 				if (!is_excessive || q1 + q2 <= c->q)
-					update_aux(opt->k, a, &z, c->b, STATE_M, q1 + q2,              diff > 0? diff : 0);
+					update_aux(opt->k, a, &z, c->b, STATE_M, q1 + q2,           diff > 0? diff : 0);
 				if (!is_excessive || q1 + q2 >= c->q)
-					update_aux(opt->k, a, &z, b1,   STATE_M, c->q,                 diff > 0? 0 : -diff < q1? -diff : q1);
+					update_aux(opt->k, a, &z, b1,   STATE_M, c->q,              diff > 0? 0 : -diff < q1? -diff : q1);
 				if (!is_excessive)
 					update_aux(opt->k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 0);
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && !is_excessive) {
 					if (z.state != STATE_D)
-						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty,    diff > 0? 0 : -diff < q1? -diff : q1);
+						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty, diff > 0? 0 : -diff < q1? -diff : q1);
 					if (z.state != STATE_I)
-						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty,    diff > 0? 0 : -diff < q1? -diff : q1);
+						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty, diff > 0? 0 : -diff < q1? -diff : q1);
 				}
 			}
-		} else update_aux(opt->k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, c->q); // no present in the hash table
+		} else update_aux(opt->k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, c->q); // not present in the hash table
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
 	}
 	// backtrack
@@ -761,7 +763,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 typedef struct {
 	int n_diff, q_diff;
 	int sub_pdiff[2], sub_ndiff[2];
-	int penalty[2], start[2];
+	int penalty[2], cov;
 } fmc_ecstat_t;
 
 void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
@@ -770,20 +772,31 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	int i;
 	correct1_stat_t st[2];
 
-	ecs->n_diff = ecs->q_diff = 0;
+	ecs->n_diff = ecs->q_diff = ecs->cov = 0;
 	if (a == 0) a = _a = fmc_aux_init();
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
 	fmc_seq_cpy(&a->seq, &a->ori);
+	// forward strand
 	st[0] = fmc_correct1_aux(opt, h, a);
+	for (i = 0; i < a->seq.n; ++i)
+		if (a->seq.a[i].state != STATE_N)
+			a->ori.a[a->seq.a[i].i].f |= 1;
+	// reverse strand
 	fmc_seq_revcomp(&a->seq);
 	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
-	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff, ecs->penalty[0] = st[0].penalty, ecs->start[0] = st[0].start;
-	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff, ecs->penalty[1] = st[1].penalty, ecs->start[1] = st[1].start;
+	for (i = 0; i < a->seq.n; ++i)
+		if (a->seq.a[i].state != STATE_N)
+			a->ori.a[a->seq.a[i].i].f |= 2;
+	// generate final stats
+	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff, ecs->penalty[0] = st[0].penalty;
+	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff, ecs->penalty[1] = st[1].penalty;
 	if (a->seq.n > a->ori.n) {
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
 	} else if (!*q) *q = calloc(a->seq.n + 1, 1);
+	for (i = 0; i < a->ori.n; ++i)
+		if (a->ori.a[i].f) ++ecs->cov;
 	for (i = 0; i < a->seq.n; ++i) {
 		ecbase_t *b = &a->seq.a[i];
 		if (b->state != STATE_N || a->ori.a[b->i].b < 4) {
@@ -828,9 +841,10 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 			correct_func(&f, i, 0);
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
-		printf("@%ld_%d_%d_%d:%d:%d:%d_%d:%d:%d:%d %s\n", (long)(start + i), f.ecs[i].n_diff, f.ecs[i].q_diff,
-				f.ecs[i].start[0], f.ecs[i].penalty[0], f.ecs[i].sub_ndiff[0], f.ecs[i].sub_pdiff[0],
-				f.ecs[i].start[1], f.ecs[i].penalty[1], f.ecs[i].sub_ndiff[1], f.ecs[i].sub_pdiff[1], f.name[i]);
+		fmc_ecstat_t *s = &f.ecs[i];
+		printf("@%ld_%d_%d_%d_%d:%d:%d_%d:%d:%d %s\n", (long)(start + i), s->cov, s->n_diff, s->q_diff,
+				s->penalty[0], s->sub_ndiff[0], s->sub_pdiff[0],
+				s->penalty[1], s->sub_ndiff[1], s->sub_pdiff[1], f.name[i]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
