@@ -9,9 +9,10 @@
  *** Hard coded constants ***
  ****************************/
 
-#define FMC_Q0        31
 #define FMC_NOHIT_PEN 63
 #define FMC_MAX_Q     41
+#define FMC_Q_0       30
+#define FMC_Q_NULL    31
 
 /******************
  *** Parameters ***
@@ -127,7 +128,8 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 #define fmc_cell_get_q1(v) (((v)>>5&0x1f)<<1)
 #define fmc_cell_get_q2(v) (((v)&0x1f)<<1)
 
-#define fmc_cell_has_b2(v) (((v)>>5&0x1f) != FMC_Q0)
+#define fmc_cell_has_b1(v) (((v)>>5&0x1f) != FMC_Q_NULL)
+#define fmc_cell_has_b2(v) (((v)>>5&0x1f) != FMC_Q_0)
 
 static inline uint64_t hash_64(uint64_t key)
 {
@@ -209,16 +211,18 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
 		else if (t[c].x[2] > max2) max2 = t[c].x[2], max_c2 = c;
 		sum += t[c].x[2];
 	}
-	rest = sum - max; rest2 = sum - max - max2;
-	if (sum > 255) {
-		rest  = (int)(255. * rest  / sum + .499);
-		rest2 = (int)(255. * rest2 / sum + .499);
-		sum = 255;
-	}
-	q1 = qtab[0][sum<<8|rest];
-	q1  = rest? (q1 < FMC_MAX_Q? q1 : FMC_MAX_Q) >> 1 : FMC_Q0;
-	q2 = qtab[1][sum<<8|rest2];
-	q2 = rest2? (q2 < FMC_MAX_Q? q2 : FMC_MAX_Q) >> 1 : FMC_Q0;
+	if (sum) {
+		rest = sum - max; rest2 = sum - max - max2;
+		if (sum > 255) {
+			rest  = (int)(255. * rest  / sum + .499);
+			rest2 = (int)(255. * rest2 / sum + .499);
+			sum = 255;
+		}
+		q1 = qtab[0][sum<<8|rest];
+		q1 = rest?  (q1 < FMC_MAX_Q? q1 : FMC_MAX_Q) >> 1 : FMC_Q_0;
+		q2 = qtab[1][sum<<8|rest2];
+		q2 = rest2? (q2 < FMC_MAX_Q? q2 : FMC_MAX_Q) >> 1 : FMC_Q_0;
+	} else q1 = q2 = FMC_Q_NULL;
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
 
@@ -287,7 +291,7 @@ void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 				q = fmc_cell_get_q1(val);
 				n_Q1 += (q < 1);
 				n_Q5 += (q < 10);
-				n_Qmax += (q < FMC_Q0<<1);
+				n_Qmax += (q < FMC_Q_0<<1);
 			}
 		}
 	}
@@ -698,7 +702,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		max_i = max_i > z.i? max_i : z.i;
 		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 2));
 		val = kmer_lookup(opt->k, opt->suf_len, z.kmer, h, a->cache);
-		if (val >= 0) { // present in the hash table
+		if (val >= 0 && fmc_cell_has_b1(val)) { // present in the hash table
 			int b1 = fmc_cell_get_b1(val);
 			int b2 = fmc_cell_has_b2(val)? fmc_cell_get_b2(val) : 4;
 			int q1 = fmc_cell_get_q1(val);
