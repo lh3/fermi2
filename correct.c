@@ -347,7 +347,10 @@ fmc64_v *fmc_kmer_read(FILE *fp, fmc_opt_t *opt)
 {
 	int i, n;
 	fmc64_v *a;
-	fread(opt, sizeof(fmc_opt_t), 1, fp);
+	fmc_opt_t tmp;
+	fread(&tmp, sizeof(fmc_opt_t), 1, fp);
+	opt->suf_len = tmp.suf_len, opt->k = tmp.k, opt->min_occ = tmp.min_occ;
+	opt->a1 = tmp.a1, opt->a2 = tmp.a2, opt->err = tmp.err, opt->prior = tmp.prior;
 	n = 1<<opt->suf_len*2;
 	a = malloc(sizeof(fmc64_v) * n);
 	for (i = 0; i < n; ++i) {
