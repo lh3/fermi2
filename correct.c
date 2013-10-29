@@ -611,7 +611,7 @@ static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, in
 
 static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecseq_t *s)
 {
-	int i = start, last;
+	int i = start, last = -1;
 	s->n = 0;
 //	fprintf(stderr, "===> start (%d) <===\n", a->a[i].penalty);
 	while (i >= 0) {
@@ -627,6 +627,7 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		last = p->i;
 		i = p->parent;
 	}
+	assert(last > 0);
 	for (i = last - 1; i >= 0; --i)
 		kv_push(ecbase_t, *s, o->a[i]);
 	for (i = 0; i < s->n>>1; ++i) {
@@ -837,7 +838,9 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 {
 	for_correct_t f;
 	int i;
+	double tr, tc;
 
+	tr = realtime(), tc = cputime();
 	f.a = calloc(opt->n_threads, sizeof(void*));
 	f.opt = opt, f.h = h, f.name = name, f.s = s, f.q = q;
 	f.ecs = calloc(n, sizeof(fmc_ecstat_t));
@@ -858,6 +861,7 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 	for (i = 0; i < opt->n_threads; ++i)
 		fmc_aux_destroy(f.a[i]);
 	free(f.a);
+	fprintf(stderr, "[M::%s] corrected %d reads in %.3f sec (%.3f CPU sec)\n", __func__, n, realtime() - tr, cputime() - tc);
 }
 
 /*********************
