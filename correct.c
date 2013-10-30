@@ -130,7 +130,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 #define fmc_cell_get_q2(v) (((v)&0x1f)<<1)
 
 #define fmc_cell_has_b1(v) (((v)>>5&0x1f) != FMC_Q_NULL)
-#define fmc_cell_has_b2(v) (((v)>>5&0x1f) != FMC_Q_0)
+#define fmc_cell_has_b2(v) (((v)>>5&0x1f) != FMC_Q_NULL)
 
 static inline uint64_t hash_64(uint64_t key)
 {
@@ -220,9 +220,11 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
 			sum = 255;
 		}
 		q1 = qtab[0][sum<<8|rest];
-		q1 = rest?  (q1 < FMC_MAX_Q? q1 : FMC_MAX_Q) >> 1 : FMC_Q_0;
-		q2 = qtab[1][sum<<8|rest2];
-		q2 = rest2? (q2 < FMC_MAX_Q? q2 : FMC_MAX_Q) >> 1 : FMC_Q_0;
+		q1 = rest? (q1 < FMC_MAX_Q? q1 : FMC_MAX_Q) >> 1 : FMC_Q_0;
+		if (rest) {
+			q2 = qtab[1][sum<<8|rest2];
+			q2 = rest2? (q2 < FMC_MAX_Q? q2 : FMC_MAX_Q) >> 1 : FMC_Q_0;
+		} else q2 = FMC_Q_NULL;
 	} else q1 = q2 = FMC_Q_NULL;
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
@@ -296,7 +298,7 @@ void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 			}
 		}
 	}
-	fprintf(stderr, "[M::%s] %ld k-mers; %.2f%% <Q1; %.2f%% <Q10; %.2f%% <Qmax\n", __func__, (long)tot,
+	fprintf(stderr, "[M::%s] %ld k-mers; %.2f%% <Q1; %.2f%% <Q5; %.2f%% <Qmax\n", __func__, (long)tot,
 			100.*n_Q1/tot, 100.*n_Q5/tot, 100.*n_Qmax/tot);
 }
 
