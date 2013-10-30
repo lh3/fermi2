@@ -10,7 +10,8 @@
  ****************************/
 
 #define FMC_NOHIT_PEN 63
-#define FMC_MAX_Q     41
+#define FMC_Q_MAX     41
+#define FMC_Q_1       29
 #define FMC_Q_0       30
 #define FMC_Q_NULL    31
 
@@ -212,7 +213,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
 		else if (t[c].x[2] > max2) max2 = t[c].x[2], max_c2 = c;
 		sum += t[c].x[2];
 	}
-	if (sum) {
+	if (sum) { // there is at least one A/C/G/T
 		rest = sum - max; rest2 = sum - max - max2;
 		if (sum > 255) {
 			rest  = (int)(255. * rest  / sum + .499);
@@ -220,12 +221,12 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
 			sum = 255;
 		}
 		q1 = qtab[0][sum<<8|rest];
-		q1 = rest? (q1 < FMC_MAX_Q? q1 : FMC_MAX_Q) >> 1 : FMC_Q_0;
-		if (rest) {
+		q1 = rest? (q1 < FMC_Q_MAX? q1 : FMC_Q_MAX) >> 1 : FMC_Q_0;
+		if (rest) { // have a 2nd base
 			q2 = qtab[1][sum<<8|rest2];
-			q2 = rest2? (q2 < FMC_MAX_Q? q2 : FMC_MAX_Q) >> 1 : FMC_Q_0;
+			q2 = rest2? (q2 < FMC_Q_MAX? q2 : FMC_Q_MAX) >> 1 : FMC_Q_0;
 		} else q2 = FMC_Q_NULL;
-	} else q1 = q2 = FMC_Q_NULL;
+	} else q1 = q2 = FMC_Q_NULL; // all "N" or "$"
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
 
@@ -469,7 +470,7 @@ int fmc_seq_conv(const char *s, const char *q, int defQ, ecseq_t *seq)
 		ecbase_t *c = &seq->a[i];
 		c->b = seq_nt6_table[(int)s[i]] - 1;
 		c->q = q? q[i] - 33 : defQ;
-		c->q = c->q < FMC_MAX_Q? c->q : FMC_MAX_Q;
+		c->q = c->q < FMC_Q_MAX? c->q : FMC_Q_MAX;
 		c->state = STATE_N;
 		c->i = i;
 		c->f = 0;
@@ -623,7 +624,7 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		if (p->state != STATE_D) {
 			kv_pushp(ecbase_t, *s, &c);
 			c->b = p->base; c->state = p->state;
-			c->q = p->qual < FMC_MAX_Q? p->qual : FMC_MAX_Q;
+			c->q = p->qual < FMC_Q_MAX? p->qual : FMC_Q_MAX;
 			c->i = o->a[p->i].i;
 //			fprintf(stderr, "[%d] %d,%d,%c; %c => %c\n", i, c->i, p->ipen, "NMID"[p->state], "ACGTN"[o->a[p->i].b], "ACGTN"[c->b]);
 		}
@@ -814,7 +815,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 			if (b->b != a->ori.a[b->i].b)
 				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
 			(*s)[i] = b->b == a->ori.a[b->i].b? "ACGTN"[b->b] : "acgtn"[b->b];
-			(*q)[i] = (b->q < FMC_MAX_Q? b->q : FMC_MAX_Q) + 33;
+			(*q)[i] = (b->q < FMC_Q_MAX? b->q : FMC_Q_MAX) + 33;
 		} else (*s)[i] = 'N', (*q)[i] = 33;
 	}
 	(*s)[i] = (*q)[i] = 0;
