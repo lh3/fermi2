@@ -104,8 +104,8 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 			int q;
 			p1 = fmc_beta_binomial(n, k, a1, b1);
 			p2 = fmc_beta_binomial(n, k, a2, b2);
-			q = -4.343 * log(1. - p1 * prior1 / (p1 * prior1 + p2 * (1-prior1)));
-			qn[k] = q < 255? q : 255;
+			q = (int)(-4.343 * log(1. - p1 * prior1 / (p1 * prior1 + p2 * (1-prior1))) + .499);
+			qn[k] = (q < FMC_Q_MAX? q : FMC_Q_MAX) >> 1;
 			//fprintf(stderr, "\t%d:%d", k, q);
 		}
 		//fprintf(stderr, "\n");
@@ -221,10 +221,8 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
 			sum = 255;
 		}
 		q1 = qtab[0][sum<<8|rest];
-		q1 = rest? (q1 < FMC_Q_MAX? q1 : FMC_Q_MAX) >> 1 : FMC_Q_0;
 		if (rest) { // have a 2nd base
 			q2 = qtab[1][sum<<8|rest2];
-			q2 = rest2? (q2 < FMC_Q_MAX? q2 : FMC_Q_MAX) >> 1 : FMC_Q_0;
 		} else q2 = FMC_Q_NULL;
 	} else q1 = q2 = FMC_Q_NULL; // all "N" or "$"
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
@@ -284,7 +282,7 @@ static void collect_func(void *shared, int i, int tid)
 void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 {
 	int i, j, k, n_suf = 1<<suf_len*2;
-	int64_t tot = 0, n_Q1 = 0, n_Q5 = 0, n_Qmax = 0;
+	int64_t tot = 0, n_Q1 = 0, n_Q10 = 0;
 	for (i = 0; i < n_suf; ++i) {
 		const fmc64_v *ai = &a[i];
 		tot += ai->n<<1;
@@ -294,13 +292,12 @@ void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 				val = fmc_cell_get_val(ai->a[j], k);
 				q = fmc_cell_get_q1(val);
 				n_Q1 += (q < 1);
-				n_Q5 += (q < 10);
-				n_Qmax += (q < FMC_Q_0<<1);
+				n_Q10 += (q < 10);
 			}
 		}
 	}
-	fprintf(stderr, "[M::%s] %ld k-mers; %.2f%% <Q1; %.2f%% <Q5; %.2f%% <Qmax\n", __func__, (long)tot,
-			100.*n_Q1/tot, 100.*n_Q5/tot, 100.*n_Qmax/tot);
+	fprintf(stderr, "[M::%s] %ld k-mers; %.2f%% <Q1; %.2f%% <Q10\n", __func__, (long)tot,
+			100.*n_Q1/tot, 100.*n_Q10/tot);
 }
 
 fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
