@@ -11,8 +11,7 @@
 
 #define FMC_NOHIT_PEN 63
 #define FMC_Q_MAX     41
-#define FMC_Q_1       29
-#define FMC_Q_0       30 // not used, actually
+#define FMC_Q_1       25 // IMPORTANT: FMC_Q_1*2 > FMC_Q_MAX
 #define FMC_Q_NULL    31
 
 /******************
@@ -95,6 +94,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 	uint8_t *qtab;
 	double b1 = a1 * (1 - e1) / e1, b2 = a2 * (1 - e2) / e2;
 
+	assert(FMC_Q_MAX>>1 < FMC_Q_1);
 	qtab = calloc(max * max, 1);
 	for (n = 1; n < max; ++n) {
 		uint8_t *qn = &qtab[n*max];
