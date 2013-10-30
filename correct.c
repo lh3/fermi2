@@ -12,7 +12,7 @@
 #define FMC_NOHIT_PEN 63
 #define FMC_Q_MAX     41
 #define FMC_Q_1       29
-#define FMC_Q_0       30
+#define FMC_Q_0       30 // not used, actually
 #define FMC_Q_NULL    31
 
 /******************
@@ -106,6 +106,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 			p2 = fmc_beta_binomial(n, k, a2, b2);
 			q = (int)(-4.343 * log(1. - p1 * prior1 / (p1 * prior1 + p2 * (1-prior1))) + .499);
 			qn[k] = (q < FMC_Q_MAX? q : FMC_Q_MAX) >> 1;
+			if (k == 1 && n >= q1_depth) qn[k] = FMC_Q_1;
 			//fprintf(stderr, "\t%d:%d", k, q);
 		}
 		//fprintf(stderr, "\n");
@@ -221,9 +222,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
 			sum = 255;
 		}
 		q1 = qtab[0][sum<<8|rest];
-		if (rest) { // have a 2nd base
-			q2 = qtab[1][sum<<8|rest2];
-		} else q2 = FMC_Q_NULL;
+		q2 = rest? qtab[1][sum<<8|rest2] : FMC_Q_NULL;
 	} else q1 = q2 = FMC_Q_NULL; // all "N" or "$"
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
