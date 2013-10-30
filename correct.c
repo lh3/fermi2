@@ -22,9 +22,9 @@ int fmc_verbose = 3;
 
 typedef struct {
 	int k, suf_len, min_occ, n_threads, ecQ, defQ;
+	int q1_depth;
 	int gap_penalty;
 	int max_heap_size;
-	int max_penalty;
 	int max_penalty_diff;
 	int64_t batch_size;
 
@@ -37,19 +37,20 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->k = 17;
 	opt->suf_len = 1;
 	opt->min_occ = 3;
-	opt->n_threads = 1;
-	opt->defQ = 17;
-	opt->ecQ = 20;
-	opt->gap_penalty = 40;
-	opt->max_heap_size = 256;
-	opt->max_penalty = 120;
-	opt->max_penalty_diff = 60;
-	opt->batch_size = (1ULL<<30) - (1ULL<<20);
+	opt->q1_depth = 17;
 
 	opt->a1 = 0.05;
 	opt->a2 = 10;
 	opt->err = 0.005;
 	opt->prior = 0.99;
+
+	opt->n_threads = 1;
+	opt->defQ = 17;
+	opt->ecQ = 20;
+	opt->gap_penalty = 40;
+	opt->max_heap_size = 256;
+	opt->max_penalty_diff = 60;
+	opt->batch_size = (1ULL<<30) - (1ULL<<20);
 }
 
 void kt_for(int n_threads, void (*func)(void*,int,int), void *shared, int n_items);
@@ -87,7 +88,7 @@ double fmc_beta_binomial(int n, int k, double a, double b)
 	return exp(x + y + z);
 }
 
-uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1)
+uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1, int q1_depth)
 {
 	int n, k;
 	uint8_t *qtab;
@@ -316,8 +317,8 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 	fprintf(stderr, "[M::%s] collecting high occurrence k-mers... ", __func__);
 	tc = cputime(); tr = realtime();
 	f.suf = fmc_traverse(e, opt->suf_len);
-	f.qtab[0] = fmc_precal_qtab(1<<8, opt->err, 0.5,      opt->a1, opt->a2, opt->prior);
-	f.qtab[1] = fmc_precal_qtab(1<<8, opt->err, 0.333333, opt->a1, opt->a2, opt->prior);
+	f.qtab[0] = fmc_precal_qtab(1<<8, opt->err, 0.5,      opt->a1, opt->a2, opt->prior, opt->q1_depth);
+	f.qtab[1] = fmc_precal_qtab(1<<8, opt->err, 0.333333, opt->a1, opt->a2, opt->prior, opt->q1_depth);
 	f.e = e, f.suf_len = opt->suf_len, f.depth = depth, f.min_occ = opt->min_occ;
 	f.kmer = calloc(n_suf, sizeof(fmc64_v));
 	kt_for(opt->n_threads, collect_func, &f, n_suf);
