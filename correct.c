@@ -716,7 +716,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->k, a, &z, b1, STATE_M, 3, q1);
 				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1, 0);
-			} else if (opt->ecQ > 0 && c->q >= opt->ecQ) {
+			} else if (opt->ecQ > 0 && c->q >= opt->ecQ && q1 < FMC_Q_1) {
 				update_aux(opt->k, a, &z, c->b, STATE_M, q1, (int)c->q > q1? (int)c->q - q1 : 0);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				int diff = (int)c->q - q1;
