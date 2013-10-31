@@ -22,7 +22,7 @@ int fmc_verbose = 3;
 
 typedef struct {
 	int k, suf_len, min_occ, n_threads, ecQ, defQ;
-	int q1_depth;
+	int q1_depth, max_ec_depth;
 	int gap_penalty;
 	int max_heap_size;
 	int max_penalty_diff;
@@ -37,7 +37,8 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->k = 17;
 	opt->suf_len = 1;
 	opt->min_occ = 3;
-	opt->q1_depth = 17;
+	opt->q1_depth = 17; // if there q1_depth bases but only one 2nd-best, correct regardless of the quality
+	opt->max_ec_depth = 5; // if there are more than max_ec_depth 2nd-best bases, don't correct
 
 	opt->a1 = 0.05;
 	opt->a2 = 10;
@@ -88,7 +89,7 @@ double fmc_beta_binomial(int n, int k, double a, double b)
 	return exp(x + y + z);
 }
 
-uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1, int q1_depth)
+uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1, int q1_depth, int max_ec_depth)
 {
 	int n, k;
 	uint8_t *qtab;
@@ -107,6 +108,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 			q = (int)(-4.343 * log(1. - p1 * prior1 / (p1 * prior1 + p2 * (1-prior1))) + .499);
 			qn[k] = (q < FMC_Q_MAX? q : FMC_Q_MAX) >> 1;
 			if (k == 1 && n >= q1_depth) qn[k] = FMC_Q_1;
+			if (k >= max_ec_depth) qn[k] = 0;
 			//fprintf(stderr, "\t%d:%d", k, q);
 		}
 		//fprintf(stderr, "\n");
@@ -132,7 +134,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 #define fmc_cell_get_q2(v) (((v)&0x1f)<<1)
 
 #define fmc_cell_has_b1(v) (((v)>>5&0x1f) != FMC_Q_NULL)
-#define fmc_cell_has_b2(v) (((v)>>5&0x1f) != FMC_Q_NULL)
+#define fmc_cell_has_b2(v) (((v)&0x1f) != FMC_Q_NULL)
 
 static inline uint64_t hash_64(uint64_t key)
 {
@@ -316,8 +318,8 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 	fprintf(stderr, "[M::%s] collecting high occurrence k-mers... ", __func__);
 	tc = cputime(); tr = realtime();
 	f.suf = fmc_traverse(e, opt->suf_len);
-	f.qtab[0] = fmc_precal_qtab(1<<8, opt->err, 0.5,      opt->a1, opt->a2, opt->prior, opt->q1_depth);
-	f.qtab[1] = fmc_precal_qtab(1<<8, opt->err, 0.333333, opt->a1, opt->a2, opt->prior, opt->q1_depth);
+	f.qtab[0] = fmc_precal_qtab(1<<8, opt->err, 0.5,      opt->a1, opt->a2, opt->prior, opt->q1_depth, opt->max_ec_depth);
+	f.qtab[1] = fmc_precal_qtab(1<<8, opt->err, 0.333333, opt->a1, opt->a2, opt->prior, opt->q1_depth, opt->max_ec_depth);
 	f.e = e, f.suf_len = opt->suf_len, f.depth = depth, f.min_occ = opt->min_occ;
 	f.kmer = calloc(n_suf, sizeof(fmc64_v));
 	kt_for(opt->n_threads, collect_func, &f, n_suf);
@@ -604,7 +606,7 @@ static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, in
 	r->kmer[0] = p->kmer[0], r->kmer[1] = p->kmer[1];
 	r->state = state;
 	r->i = state == STATE_I? p->i : p->i + 1;
-	if (fmc_verbose >= 6)fprintf(stderr, "+> [%d] i=%d, b=%c, ipen=%d, state=%c, w=%d\n", r->k, r->i, "ACGTN"[b], penalty, "NMID"[state], q->penalty);
+	if (fmc_verbose >= 6)fprintf(stderr, "+> [%d] (%d,%c), ipen=%d, state=%c, w=%d\n", r->k, r->i, "ACGTN"[b], penalty, "NMID"[state], q->penalty);
 	if (state != STATE_D) append_to_kmer(k, r->kmer, b);
 	ks_heapup_ec(a->heap.n, a->heap.a);
 }
@@ -701,7 +703,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			} else path_end[0] = z.k;
 			continue;
 		}
-		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] i=%d, size=%ld, b=%c, penalty=%d, state=%d\n", z.k, z.i, a->heap.n, "ACGTN"[a->seq.a[z.i].b], z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
+		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] (%d,%c), size=%ld, penalty=%d, state=%d\n", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
 		c = &a->seq.a[z.i];
 		max_i = max_i > z.i? max_i : z.i;
 		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 2));
@@ -750,18 +752,18 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 	}
 	// backtrack
 	if (path_end[0] >= 0) {
-//		int i;
 		s.penalty = a->stack.a[path_end[0]].penalty;
 		path_backtrack(&a->stack, path_end[0], &a->seq, &a->tmp[0]);
-//		for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
-//		for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
+		//int i;
+		//for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
+		//for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
 		if (path_end[1] >= 0) {
 			s.pen_diff = a->stack.a[path_end[1]].penalty - s.penalty;
 			path_backtrack(&a->stack, path_end[1], &a->seq, &a->tmp[1]);
 			s.n_diff = path_adjustq(a->stack.a[path_end[1]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
-//			for (i = 0; i < a->tmp[1].n; ++i) fputc("ACGTN"[a->tmp[1].a[i].b], stderr); fputc('\n', stderr);
-//			for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
-//			for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
+			//for (i = 0; i < a->tmp[1].n; ++i) fputc("ACGTN"[a->tmp[1].a[i].b], stderr); fputc('\n', stderr);
+			//for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
+			//for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
 		} else s.pen_diff = opt->max_penalty_diff, s.n_diff = 0;
 		fmc_seq_cpy(&a->seq, &a->tmp[0]);
 	}
