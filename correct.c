@@ -704,7 +704,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			} else path_end[0] = z.k;
 			continue;
 		}
-		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] (%d,%c), size=%ld, penalty=%d, state=%d\n", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
+		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] (%d,%c%d), size=%ld, penalty=%d, state=%d\n", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->seq.a[z.i].q, a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
 		c = &a->seq.a[z.i];
 		max_i = max_i > z.i? max_i : z.i;
 		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 2));
