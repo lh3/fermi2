@@ -21,7 +21,7 @@
 int fmc_verbose = 3;
 
 typedef struct {
-	int k, suf_len, min_occ, n_threads, ecQ, defQ;
+	int k, suf_len, min_occ, n_threads, ecQ, defQ, maskQ;
 	int q1_depth, max_ec_depth;
 	int gap_penalty;
 	int max_heap_size;
@@ -48,6 +48,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->n_threads = 1;
 	opt->defQ = 17;
 	opt->ecQ = 20;
+	opt->maskQ = 10;
 	opt->gap_penalty = 40;
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
@@ -351,7 +352,7 @@ fmc64_v *fmc_kmer_read(FILE *fp, fmc_opt_t *opt)
 	fmc64_v *a;
 	fmc_opt_t tmp;
 	fread(&tmp, sizeof(fmc_opt_t), 1, fp);
-	opt->suf_len = tmp.suf_len, opt->k = tmp.k, opt->min_occ = tmp.min_occ;
+	opt->suf_len = tmp.suf_len, opt->k = tmp.k, opt->min_occ = tmp.min_occ, opt->q1_depth = tmp.q1_depth;
 	opt->a1 = tmp.a1, opt->a2 = tmp.a2, opt->err = tmp.err, opt->prior = tmp.prior;
 	n = 1<<opt->suf_len*2;
 	a = malloc(sizeof(fmc64_v) * n);
@@ -814,6 +815,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
 			(*s)[i] = b->b == a->ori.a[b->i].b? "ACGTN"[b->b] : "acgtn"[b->b];
 			(*q)[i] = (b->q < FMC_Q_MAX? b->q : FMC_Q_MAX) + 33;
+			if (b->state == STATE_N && b->q < opt->maskQ) (*s)[i] = 'n';
 		} else (*s)[i] = 'N', (*q)[i] = 33;
 	}
 	(*s)[i] = (*q)[i] = 0;
@@ -881,8 +883,9 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:")) >= 0) {
+	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:m:")) >= 0) {
 		if (c == 'k') opt.k = atoi(optarg);
+		else if (c == 'd') opt.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.min_occ = atoi(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
 		else if (c == 'h') fn_kmer = optarg;
@@ -891,14 +894,26 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'p') opt.prior = atof(optarg);
 		else if (c == 'e') opt.err = atof(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
+		else if (c == 'm') opt.maskQ = atoi(optarg);
 	}
 	if (!(opt.k&1)) {
 		++opt.k;
 		fprintf(stderr, "[W::%s] -k must be an odd number; change -k to %d\n", __func__, opt.k);
 	}
 	if (optind == argc) {
-		fprintf(stderr, "Usage: fermi2 correct [-k kmer=%d] [-o minOcc=%d] [-t nThreads=%d] in.fmd\n",
-				opt.k, opt.min_occ, opt.n_threads);
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage:   fermi2 correct [options] index.fmd [reads.fq]\n\n");
+		fprintf(stderr, "Options: -t INT     number of threads [1]\n");
+		fprintf(stderr, "         -k INT     k-mer length [%d]\n", opt.k);
+		fprintf(stderr, "         -o INT     min occurrence for a solid k-mer [%d]\n", opt.min_occ);
+		fprintf(stderr, "         -d INT     correct singletons out of INT bases [%d]\n\n", opt.q1_depth);
+		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
+		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap correction [%d]\n", opt.gap_penalty);
+		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
+		fprintf(stderr, "         -m INT     mask unsupported bases with Q<INT [%d]\n", opt.maskQ);
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
+		fprintf(stderr, "       The dump can be loaded later with option -h.\n\n");
 		return 1;
 	}
 	opt.suf_len = opt.k > 18? opt.k - 18 : 1;
