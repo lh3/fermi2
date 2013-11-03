@@ -52,7 +52,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->gap_penalty = 40;
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
-	opt->batch_size = (1ULL<<30) - (1ULL<<20);
+	opt->batch_size = (1ULL<<28) - (1ULL<<20);
 }
 
 void kt_for(int n_threads, void (*func)(void*,int,int), void *shared, int n_items);
@@ -66,7 +66,7 @@ void liftrlimit(void);
 
 #include <math.h>
 
-double kf_lgamma(double z)
+double kf_lgamma(double z) // log(gamma(z))
 {
 	double x = 0;
 	x += 0.1659470187408462e-06 / (z+7);
@@ -81,7 +81,7 @@ double kf_lgamma(double z)
 	return log(x) - 5.58106146679532777 - z + (z-0.5) * log(z+6.5);
 }
 
-double fmc_beta_binomial(int n, int k, double a, double b)
+double fmc_beta_binomial(int n, int k, double a, double b) // beta-binomial density
 {
 	double x, y, z;
 	x = lgamma(n + 1) - (lgamma(k + 1) + lgamma(n - k + 1));
@@ -91,7 +91,7 @@ double fmc_beta_binomial(int n, int k, double a, double b)
 }
 
 uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1, int q1_depth, int max_ec_depth)
-{
+{ // precalculate a lookup table q(n,k), the consensus quality given n bases with k differences
 	int n, k;
 	uint8_t *qtab;
 	double b1 = a1 * (1 - e1) / e1, b2 = a2 * (1 - e2) / e2;
@@ -110,7 +110,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 			qn[k] = (q < FMC_Q_MAX? q : FMC_Q_MAX) >> 1;
 			if (k == 1 && n >= q1_depth) qn[k] = FMC_Q_1;
 			if (k >= max_ec_depth) qn[k] = 0;
-			//fprintf(stderr, "\t%d:%d", k, q);
+			//if (q) fprintf(stderr, "\t%d:%d", k, q);
 		}
 		//fprintf(stderr, "\n");
 	}
@@ -177,7 +177,7 @@ typedef khash_t(kache) kmercache_t;
 
 typedef kvec_t(rldintv_t) rldintv_v;
 
-rldintv_t *fmc_traverse(const rld_t *e, int depth)
+rldintv_t *fmc_traverse(const rld_t *e, int depth) // traverse FM-index up to $depth
 {
 	rldintv_v stack = {0,0,0};
 	rldintv_t *p, *ret;
@@ -208,11 +208,11 @@ rldintv_t *fmc_traverse(const rld_t *e, int depth)
 	return ret;
 }
 
-int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6])
+int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6]) // given a "tip" compute the consensus and the quality
 {
 	int c, max_c, max_c2, q1, q2;
 	uint64_t max, max2, rest, rest2, sum;
-	for (c = 1, max = max2 = 0, max_c = max_c2 = 1, sum = 0; c <= 4; ++c) {
+	for (c = 1, max = max2 = 0, max_c = max_c2 = 1, sum = 0; c <= 4; ++c) { // get the top 2 bases
 		if (t[c].x[2] > max) max2 = max, max_c2 = max_c, max = t[c].x[2], max_c = c;
 		else if (t[c].x[2] > max2) max2 = t[c].x[2], max_c2 = c;
 		sum += t[c].x[2];
@@ -244,13 +244,13 @@ void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int 
 			int shift = ((top.info>>2) - 1) << 1;
 			x = (x & ~(3ULL<<shift)) | (uint64_t)(top.info&3)<<shift;
 		}
-		if (top.info>>2 == depth) {
+		if (top.info>>2 == depth) { // reach the length; collect info at the two tips
 			rldintv_t t[6];
 			int val[2];
 			kv_pushp(uint64_t, *a, &p);
-			rld_extend(e, &top, t, 1);
+			rld_extend(e, &top, t, 1); // backward tip
 			val[0] = fmc_intv2tip(qtab, t);
-			rld_extend(e, &top, t, 0);
+			rld_extend(e, &top, t, 0); // forward tip
 			val[1] = fmc_intv2tip(qtab, t);
 			*p = fmc_cell_set_keyval(x, val[0], val[1]);
 		} else {
@@ -580,7 +580,7 @@ static inline int kmer_lookup(int k, int suf_len, uint64_t kmer[2], fmc_hash_t *
 		fprintf(stderr, "?? ");
 		for (i = k-1; i >= 0; --i) fputc("ACGT"[kmer[0]>>2*i&3], stderr); fprintf(stderr, " - ");
 		for (i = k-1; i >= 0; --i) fputc("ACGT"[kmer[1]>>2*i&3], stderr);
-		fprintf(stderr, " - [%d]%lx", which, (long)kmer[which]);
+		fprintf(stderr, " - [%c] %lx", "+-"[which], (long)kmer[which]);
 		if (p->missing) fprintf(stderr, " - NOHIT\n");
 		else fprintf(stderr, " - %c%d\n", "ACGTN"[fmc_cell_get_b1(val)], fmc_cell_get_q1(val));
 	}
@@ -616,7 +616,6 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 {
 	int i = start, last = -1;
 	s->n = 0;
-//	fprintf(stderr, "===> start (%d) <===\n", a->a[i].penalty);
 	while (i >= 0) {
 		ecbase_t *c;
 		ecstack1_t *p = &a->a[i];
@@ -625,7 +624,6 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 			c->b = p->base; c->state = p->state;
 			c->q = p->qual < FMC_Q_MAX? p->qual : FMC_Q_MAX;
 			c->i = o->a[p->i].i;
-//			fprintf(stderr, "[%d] %d,%d,%c; %c => %c\n", i, c->i, p->ipen, "NMID"[p->state], "ACGTN"[o->a[p->i].b], "ACGTN"[c->b]);
 		}
 		last = p->i;
 		i = p->parent;
@@ -733,7 +731,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					if (z.state != STATE_I)
 						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty, diff > 0? 0 : -diff);
 				}
-			} else {
+			} else { // we are looking at three different bases
 				int diff = (int)c->q - (q1 + q2);
 				if (!is_excessive || q1 + q2 <= c->q)
 					update_aux(opt->k, a, &z, c->b, STATE_M, q1 + q2,           diff > 0? diff : 0);
@@ -743,9 +741,9 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 0);
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && !is_excessive) {
 					if (z.state != STATE_D)
-						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty, diff > 0? 0 : -diff < q1? -diff : q1);
+						update_aux(opt->k, a, &z, b1,STATE_I,opt->gap_penalty,  diff > 0? 0 : -diff < q1? -diff : q1);
 					if (z.state != STATE_I)
-						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty, diff > 0? 0 : -diff < q1? -diff : q1);
+						update_aux(opt->k, a, &z, b1,STATE_D,opt->gap_penalty,  diff > 0? 0 : -diff < q1? -diff : q1);
 				}
 			}
 		} else update_aux(opt->k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, c->q); // not present in the hash table
