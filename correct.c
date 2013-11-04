@@ -108,7 +108,7 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 			p2 = fmc_beta_binomial(n, k, a2, b2);
 			q = (int)(-4.343 * log(1. - p1 * prior1 / (p1 * prior1 + p2 * (1-prior1))) + .499);
 			qn[k] = (q < FMC_Q_MAX? q : FMC_Q_MAX) >> 1;
-			if (k == 1 && n >= q1_depth) qn[k] = FMC_Q_1;
+			if (k == 1 && n >= q1_depth) qn[0] = qn[1] = FMC_Q_1;
 			if (k >= max_ec_depth) qn[k] = 0;
 			//if (q) fprintf(stderr, "\t%d:%d", k, q);
 		}
@@ -717,7 +717,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->k, a, &z, b1, STATE_M, 3, q1);
 				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1, 0);
-			} else if (opt->ecQ > 0 && c->q >= opt->ecQ && q1 < FMC_Q_1) {
+			} else if (opt->ecQ > 0 && c->q >= opt->ecQ && q1>>1 < FMC_Q_1) {
 				update_aux(opt->k, a, &z, c->b, STATE_M, q1, (int)c->q > q1? (int)c->q - q1 : 0);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				int diff = (int)c->q - q1;
@@ -725,7 +725,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->k, a, &z, c->b, STATE_M, q1,   diff > 0? diff : 0);
 				if (!is_excessive || q1 >= c->q)
 					update_aux(opt->k, a, &z, b1,   STATE_M, c->q, diff > 0? 0 : -diff);
-				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && !is_excessive) {
+				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
 						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty, diff > 0? 0 : -diff);
 					if (z.state != STATE_I)
@@ -739,7 +739,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->k, a, &z, b1,   STATE_M, c->q,              diff > 0? 0 : -diff < q1? -diff : q1);
 				if (!is_excessive)
 					update_aux(opt->k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 0);
-				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && !is_excessive) {
+				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
 						update_aux(opt->k, a, &z, b1,STATE_I,opt->gap_penalty,  diff > 0? 0 : -diff < q1? -diff : q1);
 					if (z.state != STATE_I)
@@ -772,7 +772,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 typedef struct {
 	int n_diff, q_diff;
 	int sub_pdiff[2], sub_ndiff[2];
-	int penalty[2], cov;
+	int penalty, cov;
 } fmc_ecstat_t;
 
 void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
@@ -798,8 +798,9 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 		if (a->seq.a[i].state != STATE_N)
 			a->ori.a[a->seq.a[i].i].f |= 2;
 	// generate final stats
-	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff, ecs->penalty[0] = st[0].penalty;
-	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff, ecs->penalty[1] = st[1].penalty;
+	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff;
+	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff;
+	ecs->penalty = st[0].penalty + st[1].penalty;
 	if (a->seq.n > a->ori.n) {
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
@@ -854,9 +855,8 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
 		fmc_ecstat_t *s = &f.ecs[i];
-		printf("@%ld_%d_%d_%d_%d:%d:%d_%d:%d:%d %s\n", (long)(start + i), s->cov, s->n_diff, s->q_diff,
-				s->penalty[0], s->sub_ndiff[0], s->sub_pdiff[0],
-				s->penalty[1], s->sub_ndiff[1], s->sub_pdiff[1], f.name[i]);
+		printf("@%ld_%d_%d_%d_%d:%d:%d_%d:%d %s\n", (long)(start + i), s->cov, s->n_diff, s->q_diff, s->penalty,
+				s->sub_ndiff[0], s->sub_pdiff[0], s->sub_ndiff[1], s->sub_pdiff[1], f.name[i]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
