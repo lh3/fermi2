@@ -11,6 +11,7 @@
 
 #define FMC_NOHIT_PEN 63
 #define FMC_MAX_PATHS 8
+#define FMC_Q_MAX_OUT 33
 #define FMC_Q_MAX     41
 #define FMC_Q_1       25 // IMPORTANT: FMC_Q_1*2 > FMC_Q_MAX
 #define FMC_Q_NULL    31
@@ -528,7 +529,7 @@ KSORT_INIT(ec, echeap1_t, echeap1_lt)
 typedef struct {
 	int parent;
 	int i, penalty;
-	uint32_t state:3, base:3, qual:8, ipen:18;
+	uint8_t state, base, dummy1, dummy2; // dummy for memory alignment
 } ecstack1_t;
 
 typedef kvec_t(echeap1_t)  echeap_t;
@@ -592,7 +593,7 @@ static inline int kmer_lookup(int k, int suf_len, uint64_t kmer[2], fmc_hash_t *
 	return p->missing? -1 : fmc_cell_get_val(p->x, !i);
 }
 
-static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, int state, int penalty, int qual)
+static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, int state, int penalty)
 {
 	ecstack1_t *q;
 	echeap1_t *r;
@@ -601,10 +602,8 @@ static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, in
 	q->parent = p->k;
 	q->i = p->i;
 	q->base = b;
-	q->qual = qual;
 	q->state = state;
 	q->penalty = p->penalty + penalty;
-	q->ipen = penalty;
 	// update the heap
 	kv_pushp(echeap1_t, a->heap, &r);
 	r->penalty = q->penalty;
@@ -625,10 +624,10 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		ecbase_t *c;
 		ecstack1_t *p = &a->a[i];
 		kv_pushp(ecbase_t, *s, &c);
-		c->b = p->state == STATE_D? 0 : p->base;
+		c->b = p->state == STATE_D? 4 : p->base;
 		c->state = p->state;
-		c->q = p->qual < FMC_Q_MAX? p->qual : FMC_Q_MAX;
 		c->i = o->a[p->i].i;
+		c->q = p->state == STATE_N? o->a[p->i].q : FMC_Q_MAX_OUT;
 		last = p->i;
 		i = p->parent;
 	}
@@ -650,10 +649,8 @@ static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 		const ecbase_t *b2;
 		b1 = &s1->a[i1];
 		b2 = &s2->a[i2];
-		if (b1->b != b2->b || b1->i != b2->i) {
-			b1->q = b1->q > b2->q? b1->q - b2->q : 0;
+		if (b1->b != b2->b)
 			b1->q = b1->q < diff? b1->q : diff;
-		}
 		if (b1->state == STATE_I && b2->state != STATE_I) ++i1;
 		else if (b2->state == STATE_I && b1->state != STATE_I) ++i2;
 		else ++i1, ++i2;
@@ -713,40 +710,38 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			int q1 = fmc_cell_get_q1(val);
 			int q2 = fmc_cell_get_q2(val);
 			if (b1 == c->b) { // read base matching the consensus
-				update_aux(opt->k, a, &z, b1, STATE_M, 0, c->q + q1);
+				update_aux(opt->k, a, &z, b1, STATE_M, 0);
 			} else if (c->b > 3) { // read base is "N"
-				update_aux(opt->k, a, &z, b1, STATE_M, 3, q1);
-				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1, 0);
+				update_aux(opt->k, a, &z, b1, STATE_M, 3);
+				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1);
 			} else if (opt->ecQ > 0 && c->q >= opt->ecQ && q1>>1 < FMC_Q_1) {
-				update_aux(opt->k, a, &z, c->b, STATE_M, q1, (int)c->q > q1? (int)c->q - q1 : 0);
+				update_aux(opt->k, a, &z, c->b, STATE_M, q1);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
-				int diff = (int)c->q - q1;
 				if (!is_excessive || q1 <= c->q)
-					update_aux(opt->k, a, &z, c->b, STATE_M, q1,   diff > 0? diff : 0);
+					update_aux(opt->k, a, &z, c->b, STATE_M, q1);
 				if (!is_excessive || q1 >= c->q)
-					update_aux(opt->k, a, &z, b1,   STATE_M, c->q, diff > 0? 0 : -diff);
+					update_aux(opt->k, a, &z, b1,   STATE_M, c->q);
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
-						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty, diff > 0? 0 : -diff);
+						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty);
 					if (z.state != STATE_I)
-						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty, diff > 0? 0 : -diff);
+						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty);
 				}
 			} else { // we are looking at three different bases
-				int diff = (int)c->q - (q1 + q2);
 				if (!is_excessive || q1 + q2 <= c->q)
-					update_aux(opt->k, a, &z, c->b, STATE_M, q1 + q2,           diff > 0? diff : 0);
+					update_aux(opt->k, a, &z, c->b, STATE_M, q1 + q2);
 				if (!is_excessive || q1 + q2 >= c->q)
-					update_aux(opt->k, a, &z, b1,   STATE_M, c->q,              diff > 0? 0 : -diff < q1? -diff : q1);
+					update_aux(opt->k, a, &z, b1,   STATE_M, c->q);
 				if (!is_excessive)
-					update_aux(opt->k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 0);
+					update_aux(opt->k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1);
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
-						update_aux(opt->k, a, &z, b1,STATE_I,opt->gap_penalty,  diff > 0? 0 : -diff < q1? -diff : q1);
+						update_aux(opt->k, a, &z, b1, STATE_I, opt->gap_penalty);
 					if (z.state != STATE_I)
-						update_aux(opt->k, a, &z, b1,STATE_D,opt->gap_penalty,  diff > 0? 0 : -diff < q1? -diff : q1);
+						update_aux(opt->k, a, &z, b1, STATE_D, opt->gap_penalty);
 				}
 			}
-		} else update_aux(opt->k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, c->q); // not present in the hash table
+		} else update_aux(opt->k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN); // not present in the hash table
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
 	}
 	// backtrack
