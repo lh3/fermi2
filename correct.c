@@ -478,11 +478,15 @@ int fmc_seq_conv(const char *s, const char *q, int defQ, ecseq_t *seq)
 	return l;
 }
 
-void fmc_seq_cpy(ecseq_t *dst, const ecseq_t *src)
+void fmc_seq_cpy_no_del(ecseq_t *dst, const ecseq_t *src)
 {
+	int i;
 	kv_resize(ecbase_t, *dst, src->n);
-	dst->n = src->n;
+	dst->n = 0;
 	memcpy(dst->a, src->a, src->n * sizeof(ecbase_t));
+	for (i = 0; i < src->n; ++i)
+		if (src->a[i].state != STATE_D)
+			dst->a[dst->n++] = src->a[i];
 }
 
 static inline ecbase_t ecbase_comp(const ecbase_t *b)
@@ -620,12 +624,11 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 	while (i >= 0) {
 		ecbase_t *c;
 		ecstack1_t *p = &a->a[i];
-		if (p->state != STATE_D) {
-			kv_pushp(ecbase_t, *s, &c);
-			c->b = p->base; c->state = p->state;
-			c->q = p->qual < FMC_Q_MAX? p->qual : FMC_Q_MAX;
-			c->i = o->a[p->i].i;
-		}
+		kv_pushp(ecbase_t, *s, &c);
+		c->b = p->state == STATE_D? 0 : p->base;
+		c->state = p->state;
+		c->q = p->qual < FMC_Q_MAX? p->qual : FMC_Q_MAX;
+		c->i = o->a[p->i].i;
 		last = p->i;
 		i = p->parent;
 	}
@@ -639,9 +642,9 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 	}
 }
 
-static int path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
+static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 {
-	int i1 = 0, i2 = 0, n_diff = 0;
+	int i1 = 0, i2 = 0;
 	while (i1 < s1->n && i2 < s2->n) {
 		ecbase_t *b1;
 		const ecbase_t *b2;
@@ -650,17 +653,15 @@ static int path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 		if (b1->b != b2->b || b1->i != b2->i) {
 			b1->q = b1->q > b2->q? b1->q - b2->q : 0;
 			b1->q = b1->q < diff? b1->q : diff;
-			++n_diff;
 		}
-		if (b1->state == STATE_I && b2->state != STATE_I) ++i1, ++n_diff;
-		else if (b2->state == STATE_I && b1->state != STATE_I) ++i2, ++n_diff;
+		if (b1->state == STATE_I && b2->state != STATE_I) ++i1;
+		else if (b2->state == STATE_I && b1->state != STATE_I) ++i2;
 		else ++i1, ++i2;
 	}
 	for (; i1 < s1->n; ++i1) {
 		ecbase_t *b = &s1->a[i1];
 		b->q = b->q < diff? b->q : diff;
 	}
-	return n_diff;
 }
 
 typedef struct {
@@ -757,8 +758,13 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				int i;
 				fprintf(stderr, "%.2d ", j);
 				path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[0]);
-				for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
+				for (i = 0; i < a->tmp[0].n; ++i) {
+					if (a->tmp[0].a[i].state == STATE_I) fputc('+', stderr);
+					fputc(a->tmp[0].a[i].state == STATE_D? '-' : "ACGTN"[a->tmp[0].a[i].b], stderr);
+				}
+				fputc('\n', stderr);
 			}
+			fprintf(stderr, "//\n");
 		}
 		s.penalty = a->stack.a[path_end[0]].penalty;
 		path_backtrack(&a->stack, path_end[0], &a->seq, &a->tmp[0]);
@@ -766,7 +772,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[1]);
 			path_adjustq(a->stack.a[path_end[j]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
 		}
-		fmc_seq_cpy(&a->seq, &a->tmp[0]);
+		fmc_seq_cpy_no_del(&a->seq, &a->tmp[0]);
 	}
 	return s;
 }
@@ -785,7 +791,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	ecs->n_diff = ecs->q_diff = ecs->cov = 0;
 	if (a == 0) a = _a = fmc_aux_init();
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
-	fmc_seq_cpy(&a->seq, &a->ori);
+	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// forward strand
 	st[0] = fmc_correct1_aux(opt, h, a);
 	for (i = 0; i < a->seq.n; ++i)
