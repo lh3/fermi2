@@ -759,10 +759,10 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				fprintf(stderr, "%.2d ", j);
 				path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[0]);
 				for (i = 0; i < a->tmp[0].n; ++i) {
-					if (a->tmp[0].a[i].state == STATE_I) fputc('+', stderr);
-					fputc(a->tmp[0].a[i].state == STATE_D? '-' : "ACGTN"[a->tmp[0].a[i].b], stderr);
+					int s = a->tmp[0].a[i].state;
+					fputc(s == STATE_D? '-' : s == STATE_I? "acgtn"[a->tmp[0].a[i].b] : "ACGTN"[a->tmp[0].a[i].b], stderr);
 				}
-				fputc('\n', stderr);
+				fprintf(stderr, "\t%d\n", a->stack.a[path_end[j]].penalty - a->stack.a[path_end[0]].penalty);
 			}
 			fprintf(stderr, "//\n");
 		}
