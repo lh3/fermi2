@@ -10,6 +10,7 @@
  ****************************/
 
 #define FMC_NOHIT_PEN 63
+#define FMC_MAX_PATHS 8
 #define FMC_Q_MAX     41
 #define FMC_Q_1       25 // IMPORTANT: FMC_Q_1*2 > FMC_Q_MAX
 #define FMC_Q_NULL    31
@@ -663,18 +664,18 @@ static int path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 }
 
 typedef struct {
-	int penalty, pen_diff, n_diff;
+	int penalty, n_paths;
 } correct1_stat_t;
 
 static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fmc_aux_t *a)
 {
 	echeap1_t z;
-	int l, path_end[2] = {-1,-1}, max_i = 0;
+	int l, path_end[FMC_MAX_PATHS], n_paths = 0, max_i = 0;
 	correct1_stat_t s;
 
 	kh_clear(kache, a->cache);
 	a->heap.n = a->stack.n = 0;
-	s.penalty = 0, s.pen_diff = 0, s.n_diff = 0;
+	s.penalty = 0;
 	// find the first k-mer
 	memset(&z, 0, sizeof(echeap1_t));
 	for (z.i = 0, l = 0; z.i < a->seq.n;) {
@@ -693,13 +694,11 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		z = a->heap.a[0];
 		a->heap.a[0] = kv_pop(a->heap);
 		ks_heapdown_ec(0, a->heap.n, a->heap.a);
-		if (path_end[0] >= 0 && z.penalty > a->stack.a[path_end[0]].penalty + opt->max_penalty_diff) break;
+		if (n_paths && z.penalty > a->stack.a[path_end[0]].penalty + opt->max_penalty_diff) break;
 		if (z.i == a->seq.n) { // end of sequence
 			if (fmc_verbose >= 6) fprintf(stderr, "** penalty=%d\n", z.penalty);
-			if (path_end[0] >= 0) {
-				path_end[1] = z.k;
-				break;
-			} else path_end[0] = z.k;
+			path_end[n_paths++] = z.k;
+			if (n_paths == FMC_MAX_PATHS) break;
 			continue;
 		}
 		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] (%d,%c%d), size=%ld, penalty=%d, state=%d\n", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->seq.a[z.i].q, a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
@@ -750,28 +749,30 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
 	}
 	// backtrack
-	if (path_end[0] >= 0) {
+	s.n_paths = n_paths;
+	if (n_paths) {
+		int j;
+		if (fmc_verbose >= 6) { // duplicated computation, but this is for debugging only
+			for (j = 0; j < n_paths; ++j) {
+				int i;
+				fprintf(stderr, "%.2d ", j);
+				path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[0]);
+				for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
+			}
+		}
 		s.penalty = a->stack.a[path_end[0]].penalty;
 		path_backtrack(&a->stack, path_end[0], &a->seq, &a->tmp[0]);
-		//int i;
-		//for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
-		//for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
-		if (path_end[1] >= 0) {
-			s.pen_diff = a->stack.a[path_end[1]].penalty - s.penalty;
-			path_backtrack(&a->stack, path_end[1], &a->seq, &a->tmp[1]);
-			s.n_diff = path_adjustq(a->stack.a[path_end[1]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
-			//for (i = 0; i < a->tmp[1].n; ++i) fputc("ACGTN"[a->tmp[1].a[i].b], stderr); fputc('\n', stderr);
-			//for (i = 0; i < a->tmp[0].n; ++i) fputc("ACGTN"[a->tmp[0].a[i].b], stderr); fputc('\n', stderr);
-			//for (i = 0; i < a->tmp[0].n; ++i) fputc(a->tmp[0].a[i].q+33, stderr); fputc('\n', stderr);
-		} else s.pen_diff = opt->max_penalty_diff, s.n_diff = 0;
+		for (j = 1; j < n_paths; ++j) {
+			path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[1]);
+			path_adjustq(a->stack.a[path_end[j]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
+		}
 		fmc_seq_cpy(&a->seq, &a->tmp[0]);
 	}
 	return s;
 }
 
 typedef struct {
-	int n_diff, q_diff;
-	int sub_pdiff[2], sub_ndiff[2];
+	int n_diff, q_diff, n_paths[2];
 	int penalty, cov;
 } fmc_ecstat_t;
 
@@ -798,8 +799,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 		if (a->seq.a[i].state != STATE_N)
 			a->ori.a[a->seq.a[i].i].f |= 2;
 	// generate final stats
-	ecs->sub_pdiff[0] = st[0].pen_diff, ecs->sub_ndiff[0] = st[0].n_diff;
-	ecs->sub_pdiff[1] = st[1].pen_diff, ecs->sub_ndiff[1] = st[1].n_diff;
+	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
 	ecs->penalty = st[0].penalty + st[1].penalty;
 	if (a->seq.n > a->ori.n) {
 		*s = realloc(*s, a->seq.n + 1);
@@ -855,8 +855,8 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
 		fmc_ecstat_t *s = &f.ecs[i];
-		printf("@%ld_%d_%d_%d_%d:%d:%d_%d:%d %s\n", (long)(start + i), s->cov, s->n_diff, s->q_diff, s->penalty,
-				s->sub_ndiff[0], s->sub_pdiff[0], s->sub_ndiff[1], s->sub_pdiff[1], f.name[i]);
+		printf("@%ld_%d_%d_%d_%d_%d:%d %s\n", (long)(start + i), s->cov, s->n_diff, s->q_diff, s->penalty,
+				s->n_paths[0], s->n_paths[1], f.name[i]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
