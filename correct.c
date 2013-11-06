@@ -853,8 +853,8 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
 		fmc_ecstat_t *s = &f.ecs[i];
-		printf("@%ld_%d_%d_%d_%d_%d:%d %s\n", (long)(start + i), s->cov, s->n_diff, s->q_diff, s->penalty,
-				s->n_paths[0], s->n_paths[1], f.name[i]);
+		printf("@%s ec:Z:%ld_%d_%d_%d_%d_%d:%d\n", f.name[i], (long)(start + i), s->cov, s->n_diff, s->q_diff, s->penalty,
+				s->n_paths[0], s->n_paths[1]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
