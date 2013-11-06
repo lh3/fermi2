@@ -676,7 +676,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 
 	kh_clear(kache, a->cache);
 	a->heap.n = a->stack.n = 0;
-	s.penalty = 0;
+	s.penalty = s.n_paths = 0;
 	// find the first k-mer
 	memset(&z, 0, sizeof(echeap1_t));
 	for (z.i = 0, l = 0; z.i < a->seq.n;) {
