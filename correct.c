@@ -23,7 +23,7 @@
 int fmc_verbose = 3;
 
 typedef struct {
-	int k, suf_len, min_occ, n_threads, ecQ, defQ, maskQ;
+	int k, suf_len, min_occ, n_threads, ecQ, defQ;
 	int q1_depth, max_ec_depth;
 	int gap_penalty;
 	int max_heap_size;
@@ -50,7 +50,6 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->n_threads = 1;
 	opt->defQ = 17;
 	opt->ecQ = 20;
-	opt->maskQ = 10;
 	opt->gap_penalty = 40;
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
@@ -455,7 +454,7 @@ void fmc_batch_destroy(fmc_batch_t *b)
 
 typedef struct {
 	uint8_t b:4, state:4;
-	uint8_t q, f;
+	uint8_t q, f, min_diff;
 	int i;
 } ecbase_t;
 
@@ -475,6 +474,7 @@ int fmc_seq_conv(const char *s, const char *q, int defQ, ecseq_t *seq)
 		c->state = STATE_N;
 		c->i = i;
 		c->f = 0;
+		c->min_diff = 0xff;
 	}
 	return l;
 }
@@ -623,11 +623,14 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 	while (i >= 0) {
 		ecbase_t *c;
 		ecstack1_t *p = &a->a[i];
+		int is_match = (p->state == STATE_M || p->state == STATE_N);
 		kv_pushp(ecbase_t, *s, &c);
-		c->b = p->state == STATE_D? 4 : p->base;
 		c->state = p->state;
 		c->i = o->a[p->i].i;
-		c->q = p->state == STATE_N? o->a[p->i].q : FMC_Q_MAX_OUT;
+		c->b = p->state == STATE_D? 4 : p->base;
+		c->q = is_match && o->a[p->i].b == p->base? o->a[p->i].q : 0;
+		c->f = (p->state != STATE_N) + (is_match? o->a[p->i].f : 0);
+		c->min_diff = is_match? o->a[p->i].min_diff : 0xff;
 		last = p->i;
 		i = p->parent;
 	}
@@ -650,7 +653,7 @@ static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 		b1 = &s1->a[i1];
 		b2 = &s2->a[i2];
 		if (b1->b != b2->b)
-			b1->q = b1->q < diff? b1->q : diff;
+			b1->min_diff = b1->min_diff < diff? b1->min_diff : diff;
 		if (b1->state == STATE_I && b2->state != STATE_I) ++i1;
 		else if (b2->state == STATE_I && b1->state != STATE_I) ++i2;
 		else ++i1, ++i2;
@@ -715,7 +718,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				update_aux(opt->k, a, &z, b1, STATE_M, 3);
 				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1);
 			} else if (opt->ecQ > 0 && c->q >= opt->ecQ && q1>>1 < FMC_Q_1) {
-				update_aux(opt->k, a, &z, c->b, STATE_M, q1);
+				update_aux(opt->k, a, &z, c->b, STATE_N, q1);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				if (!is_excessive || q1 <= c->q)
 					update_aux(opt->k, a, &z, c->b, STATE_M, q1);
@@ -789,16 +792,10 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// forward strand
 	st[0] = fmc_correct1_aux(opt, h, a);
-	for (i = 0; i < a->seq.n; ++i)
-		if (a->seq.a[i].state != STATE_N)
-			a->ori.a[a->seq.a[i].i].f |= 1;
 	// reverse strand
 	fmc_seq_revcomp(&a->seq);
 	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
-	for (i = 0; i < a->seq.n; ++i)
-		if (a->seq.a[i].state != STATE_N)
-			a->ori.a[a->seq.a[i].i].f |= 2;
 	// generate final stats
 	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
 	ecs->penalty = st[0].penalty + st[1].penalty;
@@ -806,16 +803,16 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
 	} else if (!*q) *q = calloc(a->seq.n + 1, 1);
-	for (i = 0; i < a->ori.n; ++i)
-		if (a->ori.a[i].f) ++ecs->cov;
 	for (i = 0; i < a->seq.n; ++i) {
 		ecbase_t *b = &a->seq.a[i];
-		if (b->state != STATE_N || a->ori.a[b->i].b < 4) {
+		int qual;
+		if (b->f) ++ecs->cov;
+		if (b->f || a->ori.a[b->i].b < 4) {
 			if (b->b != a->ori.a[b->i].b)
 				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
 			(*s)[i] = b->b == a->ori.a[b->i].b? "ACGTN"[b->b] : "acgtn"[b->b];
-			(*q)[i] = (b->q < FMC_Q_MAX? b->q : FMC_Q_MAX) + 33;
-			if (b->state == STATE_N && b->q < opt->maskQ) (*s)[i] = 'n';
+			qual = b->f? b->min_diff : b->q;
+			(*q)[i] = (qual < FMC_Q_MAX_OUT? qual : FMC_Q_MAX_OUT) + 33;
 		} else (*s)[i] = 'N', (*q)[i] = 33;
 	}
 	(*s)[i] = (*q)[i] = 0;
@@ -882,7 +879,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:m:")) >= 0) {
+	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.k = atoi(optarg);
 		else if (c == 'd') opt.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.min_occ = atoi(optarg);
@@ -893,7 +890,6 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'p') opt.prior = atof(optarg);
 		else if (c == 'e') opt.err = atof(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
-		else if (c == 'm') opt.maskQ = atoi(optarg);
 	}
 	if (!(opt.k&1)) {
 		++opt.k;
@@ -909,7 +905,6 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap correction [%d]\n", opt.gap_penalty);
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
-		fprintf(stderr, "         -m INT     mask unsupported bases with Q<INT [%d]\n", opt.maskQ);
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
 		fprintf(stderr, "       The dump can be loaded later with option -h.\n\n");
