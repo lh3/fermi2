@@ -959,3 +959,45 @@ int main_correct(int argc, char *argv[])
 	}
 	return 0;
 }
+
+int main_inspectk(int argc, char *argv[])
+{
+	rld_t *e;
+	int j;
+	if (argc < 3) {
+		fprintf(stderr, "Usage: fermi2 inspectk <index.fmd> <kmer1> [...]\n");
+		return 1;
+	}
+	e = rld_restore_mmap(argv[1]);
+	for (j = 2; j < argc; ++j) {
+		int i, len;
+		rldintv_t s, t[6];
+		char *aj = argv[j];
+		len = strlen(aj);
+		s.x[0] = s.x[1] = 0; s.x[2] = e->mcnt[0];
+		for (i = len - 1; i >= 0; --i) {
+			int c = seq_nt6_table[(int)aj[i]];
+			rld_extend(e, &s, t, 1);
+			if (t[c].x[2] == 0) {
+				printf("\tNA");
+				break;
+			}
+			s = t[c];
+			rld_extend(e, &s, t, 1);
+		}
+		rld_extend(e, &s, t, 1);
+		for (i = 1; i <= 4; ++i) {
+			if (i != 1) putchar(':');
+			printf("%ld", (long)t[i].x[2]);
+		}
+		printf("\t%s\t", aj);
+		rld_extend(e, &s, t, 0);
+		for (i = 4; i >= 1; --i) {
+			if (i != 4) putchar(':');
+			printf("%ld", (long)t[i].x[2]);
+		}
+		putchar('\n');
+	}
+	rld_destroy(e);
+	return 0;
+}
