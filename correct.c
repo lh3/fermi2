@@ -22,30 +22,35 @@
 
 int fmc_verbose = 3;
 
+#define FMC_KMER_MAGIC "FCK\1" // IMPORTANT: change this magic whenever fmc_collect_opt_t is changed!!!
+
 typedef struct {
-	int k, suf_len, min_occ, n_threads, ecQ, defQ;
-	int q1_depth, max_ec_depth;
+	int k:16, suf_len:16;
+	int min_occ, q1_depth, max_ec_depth;
+	double a1, a2, err, prior;
+} fmc_collect_opt_t;
+
+typedef struct {
+	fmc_collect_opt_t c;
+	int n_threads, ecQ, defQ;
 	int gap_penalty;
 	int max_heap_size;
 	int max_penalty_diff;
 	int64_t batch_size;
-
-	double a1, a2, err, prior;
 } fmc_opt_t;
 
 void fmc_opt_init(fmc_opt_t *opt)
 {
 	memset(opt, 0, sizeof(fmc_opt_t));
-	opt->k = 17;
-	opt->suf_len = 1;
-	opt->min_occ = 3;
-	opt->q1_depth = 17; // if there q1_depth bases but only one 2nd-best, correct regardless of the quality
-	opt->max_ec_depth = 5; // if there are more than max_ec_depth 2nd-best bases, don't correct
-
-	opt->a1 = 0.05;
-	opt->a2 = 10;
-	opt->err = 0.005;
-	opt->prior = 0.99;
+	opt->c.k = 17;
+	opt->c.suf_len = 1;
+	opt->c.min_occ = 3;
+	opt->c.q1_depth = 17; // if there q1_depth bases but only one 2nd-best, correct regardless of the quality
+	opt->c.max_ec_depth = 5; // if there are more than max_ec_depth 2nd-best bases, don't correct
+	opt->c.a1 = 0.05;
+	opt->c.a2 = 10;
+	opt->c.err = 0.005;
+	opt->c.prior = 0.99;
 
 	opt->n_threads = 1;
 	opt->defQ = 17;
@@ -307,7 +312,7 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 {
 	rld_t *e;
 	double tc, tr;
-	int depth = opt->k - opt->suf_len, n_suf = 1 << opt->suf_len*2;
+	int depth = opt->c.k - opt->c.suf_len, n_suf = 1 << opt->c.suf_len*2;
 	for_collect_t f;
 
 	assert(0 < depth && depth <= 18);
@@ -319,17 +324,17 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 
 	fprintf(stderr, "[M::%s] collecting high occurrence k-mers... ", __func__);
 	tc = cputime(); tr = realtime();
-	f.suf = fmc_traverse(e, opt->suf_len);
-	f.qtab[0] = fmc_precal_qtab(1<<8, opt->err, 0.5,      opt->a1, opt->a2, opt->prior, opt->q1_depth, opt->max_ec_depth);
-	f.qtab[1] = fmc_precal_qtab(1<<8, opt->err, 0.333333, opt->a1, opt->a2, opt->prior, opt->q1_depth, opt->max_ec_depth);
-	f.e = e, f.suf_len = opt->suf_len, f.depth = depth, f.min_occ = opt->min_occ;
+	f.suf = fmc_traverse(e, opt->c.suf_len);
+	f.qtab[0] = fmc_precal_qtab(1<<8, opt->c.err, 0.5,      opt->c.a1, opt->c.a2, opt->c.prior, opt->c.q1_depth, opt->c.max_ec_depth);
+	f.qtab[1] = fmc_precal_qtab(1<<8, opt->c.err, 0.333333, opt->c.a1, opt->c.a2, opt->c.prior, opt->c.q1_depth, opt->c.max_ec_depth);
+	f.e = e, f.suf_len = opt->c.suf_len, f.depth = depth, f.min_occ = opt->c.min_occ;
 	f.kmer = calloc(n_suf, sizeof(fmc64_v));
 	kt_for(opt->n_threads, collect_func, &f, n_suf);
 	rld_destroy(e);
 	free(f.qtab[0]); free(f.qtab[1]); free(f.suf);
 	fprintf(stderr, "in %.3f sec (%.3f CPU sec)\n", realtime() - tr, cputime() - tc);
 
-	fmc_kmer_stat(opt->suf_len, f.kmer);
+	fmc_kmer_stat(opt->c.suf_len, f.kmer);
 	return f.kmer;
 }
 
@@ -339,8 +344,9 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 
 void fmc_kmer_write(FILE *fp, const fmc_opt_t *opt, const fmc64_v *a)
 {
-	int i, n = 1<<opt->suf_len*2;
-	fwrite(opt, sizeof(fmc_opt_t), 1, fp);
+	int i, n = 1<<opt->c.suf_len*2;
+	fwrite(FMC_KMER_MAGIC, 1, 4, fp);
+	fwrite(&opt->c, sizeof(fmc_collect_opt_t), 1, fp);
 	for (i = 0; i < n; ++i) {
 		fwrite(&a[i].n, sizeof(size_t), 1, fp);
 		fwrite(a[i].a, 8, a[i].n, fp);
@@ -350,12 +356,15 @@ void fmc_kmer_write(FILE *fp, const fmc_opt_t *opt, const fmc64_v *a)
 fmc64_v *fmc_kmer_read(FILE *fp, fmc_opt_t *opt)
 {
 	int i, n;
+	char magic[4];
 	fmc64_v *a;
-	fmc_opt_t tmp;
-	fread(&tmp, sizeof(fmc_opt_t), 1, fp);
-	opt->suf_len = tmp.suf_len, opt->k = tmp.k, opt->min_occ = tmp.min_occ, opt->q1_depth = tmp.q1_depth;
-	opt->a1 = tmp.a1, opt->a2 = tmp.a2, opt->err = tmp.err, opt->prior = tmp.prior;
-	n = 1<<opt->suf_len*2;
+	fread(magic, 1, 4, fp);
+	if (strncmp(magic, FMC_KMER_MAGIC, 4) != 0) {
+		fprintf(stderr, "[E::%s] invalid file magic\n", __func__);
+		return 0;
+	}
+	fread(&opt->c, sizeof(fmc_collect_opt_t), 1, fp);
+	n = 1<<opt->c.suf_len*2;
 	a = malloc(sizeof(fmc64_v) * n);
 	for (i = 0; i < n; ++i) {
 		fread(&a[i].n, sizeof(size_t), 1, fp);
@@ -368,7 +377,7 @@ fmc64_v *fmc_kmer_read(FILE *fp, fmc_opt_t *opt)
 
 fmc_hash_t **fmc_kmer2hash(const fmc_opt_t *opt, fmc64_v *a)
 {
-	int i, n = 1 << opt->suf_len*2;
+	int i, n = 1 << opt->c.suf_len*2;
 	fmc_hash_t **h;
 	double t;
 	t = cputime();
@@ -681,9 +690,9 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 	memset(&z, 0, sizeof(echeap1_t));
 	for (z.i = 0, l = 0; z.i < a->seq.n;) {
 		if (a->seq.a[z.i].b > 3) l = 0, z.kmer[0] = z.kmer[1] = 0;
-		else ++l, append_to_kmer(opt->k, z.kmer, a->seq.a[z.i].b);
+		else ++l, append_to_kmer(opt->c.k, z.kmer, a->seq.a[z.i].b);
 		if (++z.i == a->seq.n) break;
-		if (l >= opt->k && kmer_lookup(opt->k, opt->suf_len, z.kmer, h, a->cache) >= 0) break;
+		if (l >= opt->c.k && kmer_lookup(opt->c.k, opt->c.suf_len, z.kmer, h, a->cache) >= 0) break;
 	}
 	if (z.i == a->seq.n) return s;
 	z.k = -1; // the first k-mer is not on the stack
@@ -706,45 +715,45 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		c = &a->seq.a[z.i];
 		max_i = max_i > z.i? max_i : z.i;
 		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 2));
-		val = kmer_lookup(opt->k, opt->suf_len, z.kmer, h, a->cache);
+		val = kmer_lookup(opt->c.k, opt->c.suf_len, z.kmer, h, a->cache);
 		if (val >= 0 && fmc_cell_has_b1(val)) { // present in the hash table
 			int b1 = fmc_cell_get_b1(val);
 			int b2 = fmc_cell_has_b2(val)? fmc_cell_get_b2(val) : 4;
 			int q1 = fmc_cell_get_q1(val);
 			int q2 = fmc_cell_get_q2(val);
 			if (b1 == c->b) { // read base matching the consensus
-				update_aux(opt->k, a, &z, b1, STATE_M, 0);
+				update_aux(opt->c.k, a, &z, b1, STATE_M, 0);
 			} else if (c->b > 3) { // read base is "N"
-				update_aux(opt->k, a, &z, b1, STATE_M, 3);
-				if (b2 < 4 && !is_excessive) update_aux(opt->k, a, &z, b2, STATE_M, q1);
+				update_aux(opt->c.k, a, &z, b1, STATE_M, 3);
+				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1);
 			} else if (opt->ecQ > 0 && c->q >= opt->ecQ && q1>>1 < FMC_Q_1) {
-				update_aux(opt->k, a, &z, c->b, STATE_N, q1);
+				update_aux(opt->c.k, a, &z, c->b, STATE_N, q1);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				if (!is_excessive || q1 <= c->q)
-					update_aux(opt->k, a, &z, c->b, STATE_M, q1);
+					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1);
 				if (!is_excessive || q1 >= c->q)
-					update_aux(opt->k, a, &z, b1,   STATE_M, c->q);
+					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q);
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
-						update_aux(opt->k, a, &z, b1,STATE_I, opt->gap_penalty);
+						update_aux(opt->c.k, a, &z, b1,STATE_I, opt->gap_penalty);
 					if (z.state != STATE_I)
-						update_aux(opt->k, a, &z, b1,STATE_D, opt->gap_penalty);
+						update_aux(opt->c.k, a, &z, b1,STATE_D, opt->gap_penalty);
 				}
 			} else { // we are looking at three different bases
 				if (!is_excessive || q1 + q2 <= c->q)
-					update_aux(opt->k, a, &z, c->b, STATE_M, q1 + q2);
+					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1 + q2);
 				if (!is_excessive || q1 + q2 >= c->q)
-					update_aux(opt->k, a, &z, b1,   STATE_M, c->q);
+					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q);
 				if (!is_excessive)
-					update_aux(opt->k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1);
+					update_aux(opt->c.k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1);
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
-						update_aux(opt->k, a, &z, b1, STATE_I, opt->gap_penalty);
+						update_aux(opt->c.k, a, &z, b1, STATE_I, opt->gap_penalty);
 					if (z.state != STATE_I)
-						update_aux(opt->k, a, &z, b1, STATE_D, opt->gap_penalty);
+						update_aux(opt->c.k, a, &z, b1, STATE_D, opt->gap_penalty);
 				}
 			}
-		} else update_aux(opt->k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN); // not present in the hash table
+		} else update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN); // not present in the hash table
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
 	}
 	// backtrack
@@ -880,28 +889,28 @@ int main_correct(int argc, char *argv[])
 
 	fmc_opt_init(&opt);
 	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:")) >= 0) {
-		if (c == 'k') opt.k = atoi(optarg);
-		else if (c == 'd') opt.q1_depth = atoi(optarg);
-		else if (c == 'o') opt.min_occ = atoi(optarg);
+		if (c == 'k') opt.c.k = atoi(optarg);
+		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
+		else if (c == 'o') opt.c.min_occ = atoi(optarg);
+		else if (c == 'p') opt.c.prior = atof(optarg);
+		else if (c == 'e') opt.c.err = atof(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
 		else if (c == 'h') fn_kmer = optarg;
 		else if (c == 'g') opt.gap_penalty = atoi(optarg);
 		else if (c == 'v') fmc_verbose = atoi(optarg);
-		else if (c == 'p') opt.prior = atof(optarg);
-		else if (c == 'e') opt.err = atof(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 	}
-	if (!(opt.k&1)) {
-		++opt.k;
-		fprintf(stderr, "[W::%s] -k must be an odd number; change -k to %d\n", __func__, opt.k);
+	if (!(opt.c.k&1)) {
+		++opt.c.k;
+		fprintf(stderr, "[W::%s] -k must be an odd number; change -k to %d\n", __func__, opt.c.k);
 	}
 	if (optind == argc) {
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 correct [options] index.fmd [reads.fq]\n\n");
 		fprintf(stderr, "Options: -t INT     number of threads [1]\n");
-		fprintf(stderr, "         -k INT     k-mer length [%d]\n", opt.k);
-		fprintf(stderr, "         -o INT     min occurrence for a solid k-mer [%d]\n", opt.min_occ);
-		fprintf(stderr, "         -d INT     correct singletons out of INT bases [%d]\n\n", opt.q1_depth);
+		fprintf(stderr, "         -k INT     k-mer length [%d]\n", opt.c.k);
+		fprintf(stderr, "         -o INT     min occurrence for a solid k-mer [%d]\n", opt.c.min_occ);
+		fprintf(stderr, "         -d INT     correct singletons out of INT bases [%d]\n\n", opt.c.q1_depth);
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap correction [%d]\n", opt.gap_penalty);
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
@@ -910,7 +919,7 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "       The dump can be loaded later with option -h.\n\n");
 		return 1;
 	}
-	opt.suf_len = opt.k > 18? opt.k - 18 : 1;
+	opt.c.suf_len = opt.c.k > 18? opt.c.k - 18 : 1;
 
 	if (fn_kmer) {
 		FILE *fp;
@@ -923,7 +932,7 @@ int main_correct(int argc, char *argv[])
 	if (optind + 2 > argc) {
 		int i;
 		fmc_kmer_write(stdout, &opt, kmer);
-		for (i = 0; i < 1<<opt.suf_len*2; ++i)
+		for (i = 0; i < 1<<opt.c.suf_len*2; ++i)
 			free(kmer[i].a);
 		free(kmer);
 		return 0;
@@ -944,7 +953,7 @@ int main_correct(int argc, char *argv[])
 		}
 		kseq_destroy(ks);
 		gzclose(fp);
-		for (i = 0; i < 1<<opt.suf_len*2; ++i)
+		for (i = 0; i < 1<<opt.c.suf_len*2; ++i)
 			kh_destroy(fmc, h[i]);
 		free(h);
 	}
