@@ -224,7 +224,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth) // gi
 		sum += t[c].x[2];
 	}
 	rest = sum - max; rest2 = sum - max - max2;
-	if (sum && rest > max_ec_depth) { // there is at least one A/C/G/T
+	if (sum && rest <= max_ec_depth) { // there is at least one A/C/G/T
 		if (sum > 255) {
 			rest  = (int)(255. * rest  / sum + .499);
 			rest2 = (int)(255. * rest2 / sum + .499);
