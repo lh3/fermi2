@@ -216,7 +216,7 @@ rldintv_t *fmc_traverse(const rld_t *e, int depth) // traverse FM-index up to $d
 	return ret;
 }
 
-int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth) // given a "tip" compute the consensus and the quality
+int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth, int max_ec_depth) // given a "tip" compute the consensus and the quality
 {
 	int c, max_c, max_c2, q1, q2;
 	uint64_t max, max2, rest, rest2, sum;
@@ -226,7 +226,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth) // given
 		sum += t[c].x[2];
 	}
 	rest = sum - max; rest2 = sum - max - max2;
-	if (sum && sum <= max_depth) { // there is at least one A/C/G/T
+	if (sum && (sum <= max_depth || rest <= max_ec_depth)) { // there is at least one A/C/G/T
 		if (sum > 255) {
 			rest  = (int)(255. * rest  / sum + .499);
 			rest2 = (int)(255. * rest2 / sum + .499);
@@ -238,7 +238,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth) // given
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
 
-void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int min_occ, int max_depth, const rldintv_t *start, fmc64_v *a)
+void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int min_occ, int max_depth, int max_ec_depth, const rldintv_t *start, fmc64_v *a)
 {
 	rldintv_v stack = {0,0,0};
 	uint64_t x = 0, *p;
@@ -257,9 +257,9 @@ void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int 
 			int val[2];
 			kv_pushp(uint64_t, *a, &p);
 			rld_extend(e, &top, t, 1); // backward tip
-			val[0] = fmc_intv2tip(qtab, t, max_depth);
+			val[0] = fmc_intv2tip(qtab, t, max_depth, max_ec_depth);
 			rld_extend(e, &top, t, 0); // forward tip
-			val[1] = fmc_intv2tip(qtab, t, max_depth);
+			val[1] = fmc_intv2tip(qtab, t, max_depth, max_ec_depth);
 			*p = fmc_cell_set_keyval(x, val[0], val[1]);
 		} else {
 			int c, end = (suf_len + (top.info>>2)) == (suf_len + depth) / 2? 2 : 4;
@@ -287,7 +287,7 @@ typedef struct {
 static void collect_func(void *shared, int i, int tid)
 {
 	for_collect_t *s = (for_collect_t*)shared;
-	fmc_collect1(s->e, s->qtab, s->opt->c.suf_len, s->depth, s->opt->c.min_occ, s->opt->c.max_depth, &s->suf[i], &s->kmer[i]);
+	fmc_collect1(s->e, s->qtab, s->opt->c.suf_len, s->depth, s->opt->c.min_occ, s->opt->c.max_depth, s->opt->c.max_ec_depth, &s->suf[i], &s->kmer[i]);
 }
 
 void fmc_kmer_stat(int suf_len, const fmc64_v *a)
