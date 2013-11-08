@@ -214,7 +214,7 @@ rldintv_t *fmc_traverse(const rld_t *e, int depth) // traverse FM-index up to $d
 	return ret;
 }
 
-int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6]) // given a "tip" compute the consensus and the quality
+int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth) // given a "tip" compute the consensus and the quality
 {
 	int c, max_c, max_c2, q1, q2;
 	uint64_t max, max2, rest, rest2, sum;
@@ -223,8 +223,8 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6]) // given a "tip" comput
 		else if (t[c].x[2] > max2) max2 = t[c].x[2], max_c2 = c;
 		sum += t[c].x[2];
 	}
-	if (sum) { // there is at least one A/C/G/T
-		rest = sum - max; rest2 = sum - max - max2;
+	rest = sum - max; rest2 = sum - max - max2;
+	if (sum && rest > max_ec_depth) { // there is at least one A/C/G/T
 		if (sum > 255) {
 			rest  = (int)(255. * rest  / sum + .499);
 			rest2 = (int)(255. * rest2 / sum + .499);
@@ -236,7 +236,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6]) // given a "tip" comput
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
 
-void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int min_occ, const rldintv_t *start, fmc64_v *a)
+void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int min_occ, int max_ec_depth, const rldintv_t *start, fmc64_v *a)
 {
 	rldintv_v stack = {0,0,0};
 	uint64_t x = 0, *p;
@@ -255,9 +255,9 @@ void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int 
 			int val[2];
 			kv_pushp(uint64_t, *a, &p);
 			rld_extend(e, &top, t, 1); // backward tip
-			val[0] = fmc_intv2tip(qtab, t);
+			val[0] = fmc_intv2tip(qtab, t, max_ec_depth);
 			rld_extend(e, &top, t, 0); // forward tip
-			val[1] = fmc_intv2tip(qtab, t);
+			val[1] = fmc_intv2tip(qtab, t, max_ec_depth);
 			*p = fmc_cell_set_keyval(x, val[0], val[1]);
 		} else {
 			int c, end = (suf_len + (top.info>>2)) == (suf_len + depth) / 2? 2 : 4;
@@ -274,23 +274,24 @@ void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int 
 }
 
 typedef struct {
+	const fmc_opt_t *opt;
 	const rld_t *e;
 	uint8_t *qtab[2];
 	rldintv_t *suf;
 	fmc64_v *kmer;
-	int suf_len, depth, min_occ;
+	int depth;
 } for_collect_t;
 
 static void collect_func(void *shared, int i, int tid)
 {
 	for_collect_t *s = (for_collect_t*)shared;
-	fmc_collect1(s->e, s->qtab, s->suf_len, s->depth, s->min_occ, &s->suf[i], &s->kmer[i]);
+	fmc_collect1(s->e, s->qtab, s->opt->c.suf_len, s->depth, s->opt->c.min_occ, s->opt->c.max_ec_depth, &s->suf[i], &s->kmer[i]);
 }
 
 void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 {
 	int i, j, k, n_suf = 1<<suf_len*2;
-	int64_t tot = 0, n_Q1 = 0, n_Q10 = 0;
+	int64_t tot = 0;
 	for (i = 0; i < n_suf; ++i) {
 		const fmc64_v *ai = &a[i];
 		tot += ai->n<<1;
@@ -299,13 +300,10 @@ void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 				int val, q;
 				val = fmc_cell_get_val(ai->a[j], k);
 				q = fmc_cell_get_q1(val);
-				n_Q1 += (q < 1);
-				n_Q10 += (q < 10);
 			}
 		}
 	}
-	fprintf(stderr, "[M::%s] %ld k-mers; %.2f%% <Q1; %.2f%% <Q10\n", __func__, (long)tot,
-			100.*n_Q1/tot, 100.*n_Q10/tot);
+	fprintf(stderr, "[M::%s] %ld k-mers\n", __func__, (long)tot);
 }
 
 fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
@@ -324,10 +322,10 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 
 	fprintf(stderr, "[M::%s] collecting high occurrence k-mers... ", __func__);
 	tc = cputime(); tr = realtime();
+	f.e = e; f.opt = opt; f.depth = depth;
 	f.suf = fmc_traverse(e, opt->c.suf_len);
 	f.qtab[0] = fmc_precal_qtab(1<<8, opt->c.err, 0.5,      opt->c.a1, opt->c.a2, opt->c.prior, opt->c.q1_depth, opt->c.max_ec_depth);
 	f.qtab[1] = fmc_precal_qtab(1<<8, opt->c.err, 0.333333, opt->c.a1, opt->c.a2, opt->c.prior, opt->c.q1_depth, opt->c.max_ec_depth);
-	f.e = e, f.suf_len = opt->c.suf_len, f.depth = depth, f.min_occ = opt->c.min_occ;
 	f.kmer = calloc(n_suf, sizeof(fmc64_v));
 	kt_for(opt->n_threads, collect_func, &f, n_suf);
 	rld_destroy(e);
@@ -640,8 +638,8 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		c->i = o->a[p->i].i;
 		c->b = p->state == STATE_D? 4 : p->base;
 		c->q = is_match && o->a[p->i].b == p->base? o->a[p->i].q : 0;
-		c->ob = o->a[p->i].ob;
-		c->oq = o->a[p->i].oq;
+		c->ob = p->state == STATE_I? 4 : o->a[p->i].ob;
+		c->oq = p->state == STATE_I? 0 : o->a[p->i].oq;
 		c->f = (p->state != STATE_N) + (is_match? o->a[p->i].f : 0);
 		c->min_diff = is_match? o->a[p->i].min_diff : 0xff;
 		last = p->i;
