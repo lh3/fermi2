@@ -461,9 +461,10 @@ void fmc_batch_destroy(fmc_batch_t *b)
 #define STATE_I 2
 #define STATE_D 3
 
-typedef struct {
+typedef struct { // NOTE: unaligned memory
 	uint8_t b:4, state:4;
-	uint8_t q, f, min_diff;
+	uint8_t ob:4, f:4;
+	uint8_t q, oq, min_diff;
 	int i;
 } ecbase_t;
 
@@ -477,9 +478,9 @@ int fmc_seq_conv(const char *s, const char *q, int defQ, ecseq_t *seq)
 	seq->n = l;
 	for (i = 0; i < l; ++i) {
 		ecbase_t *c = &seq->a[i];
-		c->b = seq_nt6_table[(int)s[i]] - 1;
+		c->b = c->ob = seq_nt6_table[(int)s[i]] - 1;
 		c->q = q? q[i] - 33 : defQ;
-		c->q = c->q < FMC_Q_MAX? c->q : FMC_Q_MAX;
+		c->q = c->oq = c->q < FMC_Q_MAX? c->q : FMC_Q_MAX;
 		c->state = STATE_N;
 		c->i = i;
 		c->f = 0;
@@ -503,6 +504,7 @@ static inline ecbase_t ecbase_comp(const ecbase_t *b)
 {
 	ecbase_t r = *b;
 	r.b = b->b < 4? 3 - b->b : 4;
+	r.ob = b->ob < 4? 3 - b->ob : 4;
 	return r;
 }
 
@@ -638,6 +640,8 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		c->i = o->a[p->i].i;
 		c->b = p->state == STATE_D? 4 : p->base;
 		c->q = is_match && o->a[p->i].b == p->base? o->a[p->i].q : 0;
+		c->ob = o->a[p->i].ob;
+		c->oq = o->a[p->i].oq;
 		c->f = (p->state != STATE_N) + (is_match? o->a[p->i].f : 0);
 		c->min_diff = is_match? o->a[p->i].min_diff : 0xff;
 		last = p->i;
@@ -721,8 +725,12 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			int b2 = fmc_cell_has_b2(val)? fmc_cell_get_b2(val) : 4;
 			int q1 = fmc_cell_get_q1(val);
 			int q2 = fmc_cell_get_q2(val);
+			int is_corrected = ((c->state == STATE_M || c->state == STATE_N) && c->b != c->ob);
 			if (b1 == c->b) { // read base matching the consensus
-				update_aux(opt->c.k, a, &z, b1, STATE_M, 0);
+				if (is_corrected) {
+					update_aux(opt->c.k, a, &z, c->b,  STATE_M, c->oq);
+					update_aux(opt->c.k, a, &z, c->ob, STATE_M, c->ob == b1? 0 : q1);
+				} else update_aux(opt->c.k, a, &z, c->b, STATE_M, 0);
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->c.k, a, &z, b1, STATE_M, 3);
 				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1);

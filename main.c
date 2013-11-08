@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FM_VERSION "r54"
+#define FM_VERSION "r55"
 
 int main_diff(int argc, char *argv[]);
 int main_sub(int argc, char *argv[]);
