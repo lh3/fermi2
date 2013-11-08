@@ -902,12 +902,12 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'o') opt.c.min_occ = atoi(optarg);
 		else if (c == 'p') opt.c.prior = atof(optarg);
 		else if (c == 'e') opt.c.err = atof(optarg);
+		else if (c == 'D') opt.c.max_depth = atoi(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
 		else if (c == 'h') fn_kmer = optarg;
 		else if (c == 'g') opt.gap_penalty = atoi(optarg);
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
-		else if (c == 'D') opt.max_depth = atoi(optarg);
 	}
 	if (!(opt.c.k&1)) {
 		++opt.c.k;
