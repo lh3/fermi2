@@ -27,7 +27,7 @@ int fmc_verbose = 3;
 typedef struct {
 	int k:16, suf_len:16;
 	int min_occ:16, max_ec_depth:16;
-	int q1_depth, max_depth;
+	int q1_depth, dummy;
 	double a1, a2, err, prior;
 } fmc_collect_opt_t;
 
@@ -48,7 +48,6 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->c.min_occ = 3;
 	opt->c.q1_depth = 17; // if there q1_depth bases but only one 2nd-best, correct regardless of the quality
 	opt->c.max_ec_depth = 5; // if there are more than max_ec_depth 2nd-best bases, don't correct
-	opt->c.max_depth = 200;
 	opt->c.a1 = 0.05;
 	opt->c.a2 = 10;
 	opt->c.err = 0.005;
@@ -98,7 +97,7 @@ double fmc_beta_binomial(int n, int k, double a, double b) // beta-binomial dens
 	return exp(x + y + z);
 }
 
-uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1, int q1_depth, int max_ec_depth)
+uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, double prior1)
 { // precalculate a lookup table q(n,k), the consensus quality given n bases with k differences
 	int n, k;
 	uint8_t *qtab;
@@ -116,8 +115,6 @@ uint8_t *fmc_precal_qtab(int max, double e1, double e2, double a1, double a2, do
 			p2 = fmc_beta_binomial(n, k, a2, b2);
 			q = (int)(-4.343 * log(1. - p1 * prior1 / (p1 * prior1 + p2 * (1-prior1))) + .499);
 			qn[k] = (q < FMC_Q_MAX? q : FMC_Q_MAX) >> 1;
-			if (k == 1 && n >= q1_depth) qn[0] = qn[1] = FMC_Q_1;
-			if (k >= max_ec_depth) qn[k] = 0;
 			//if (q) fprintf(stderr, "\t%d:%d", k, q);
 		}
 		//fprintf(stderr, "\n");
@@ -216,7 +213,7 @@ rldintv_t *fmc_traverse(const rld_t *e, int depth) // traverse FM-index up to $d
 	return ret;
 }
 
-int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth, int max_ec_depth) // given a "tip" compute the consensus and the quality
+int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth, int q1_depth) // given a "tip" compute the consensus and the quality
 {
 	int c, max_c, max_c2, q1, q2;
 	uint64_t max, max2, rest, rest2, sum;
@@ -226,7 +223,13 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth, int max_
 		sum += t[c].x[2];
 	}
 	rest = sum - max; rest2 = sum - max - max2;
-	if (sum && (sum <= max_depth || rest <= max_ec_depth)) { // there is at least one A/C/G/T
+	if (sum == 0) {
+		q1 = q2 = FMC_Q_NULL;
+	} else if (rest <= 1 && sum >= q1_depth) {
+		q1 = q2 = FMC_Q_1;
+	} else if (rest > max_ec_depth) {
+		q1 = q2 = 0;
+	} else {
 		if (sum > 255) {
 			rest  = (int)(255. * rest  / sum + .499);
 			rest2 = (int)(255. * rest2 / sum + .499);
@@ -234,11 +237,11 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_depth, int max_
 		}
 		q1 = qtab[0][sum<<8|rest];
 		q2 = rest? qtab[1][sum<<8|rest2] : FMC_Q_NULL;
-	} else q1 = q2 = FMC_Q_NULL; // all "N" or "$"
+	}
 	return fmc_cell_set_val(4-max_c, 4-max_c2, q1, q2);
 }
 
-void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int min_occ, int max_depth, int max_ec_depth, const rldintv_t *start, fmc64_v *a)
+void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int min_occ, int max_ec_depth, int q1_depth, const rldintv_t *start, fmc64_v *a)
 {
 	rldintv_v stack = {0,0,0};
 	uint64_t x = 0, *p;
@@ -257,9 +260,9 @@ void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int 
 			int val[2];
 			kv_pushp(uint64_t, *a, &p);
 			rld_extend(e, &top, t, 1); // backward tip
-			val[0] = fmc_intv2tip(qtab, t, max_depth, max_ec_depth);
+			val[0] = fmc_intv2tip(qtab, t, max_ec_depth, q1_depth);
 			rld_extend(e, &top, t, 0); // forward tip
-			val[1] = fmc_intv2tip(qtab, t, max_depth, max_ec_depth);
+			val[1] = fmc_intv2tip(qtab, t, max_ec_depth, q1_depth);
 			*p = fmc_cell_set_keyval(x, val[0], val[1]);
 		} else {
 			int c, end = (suf_len + (top.info>>2)) == (suf_len + depth) / 2? 2 : 4;
@@ -287,7 +290,7 @@ typedef struct {
 static void collect_func(void *shared, int i, int tid)
 {
 	for_collect_t *s = (for_collect_t*)shared;
-	fmc_collect1(s->e, s->qtab, s->opt->c.suf_len, s->depth, s->opt->c.min_occ, s->opt->c.max_depth, s->opt->c.max_ec_depth, &s->suf[i], &s->kmer[i]);
+	fmc_collect1(s->e, s->qtab, s->opt->c.suf_len, s->depth, s->opt->c.min_occ, s->opt->c.max_ec_depth, s->opt->c.q1_depth, &s->suf[i], &s->kmer[i]);
 }
 
 void fmc_kmer_stat(int suf_len, const fmc64_v *a)
@@ -326,8 +329,8 @@ fmc64_v *fmc_collect(fmc_opt_t *opt, const char *fn_fmi)
 	tc = cputime(); tr = realtime();
 	f.e = e; f.opt = opt; f.depth = depth;
 	f.suf = fmc_traverse(e, opt->c.suf_len);
-	f.qtab[0] = fmc_precal_qtab(1<<8, opt->c.err, 0.5,      opt->c.a1, opt->c.a2, opt->c.prior, opt->c.q1_depth, opt->c.max_ec_depth);
-	f.qtab[1] = fmc_precal_qtab(1<<8, opt->c.err, 0.333333, opt->c.a1, opt->c.a2, opt->c.prior, opt->c.q1_depth, opt->c.max_ec_depth);
+	f.qtab[0] = fmc_precal_qtab(1<<8, opt->c.err, 0.5,      opt->c.a1, opt->c.a2, opt->c.prior);
+	f.qtab[1] = fmc_precal_qtab(1<<8, opt->c.err, 0.333333, opt->c.a1, opt->c.a2, opt->c.prior);
 	f.kmer = calloc(n_suf, sizeof(fmc64_v));
 	kt_for(opt->n_threads, collect_func, &f, n_suf);
 	rld_destroy(e);
@@ -896,13 +899,12 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:D:")) >= 0) {
+	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg);
 		else if (c == 'p') opt.c.prior = atof(optarg);
 		else if (c == 'e') opt.c.err = atof(optarg);
-		else if (c == 'D') opt.c.max_depth = atoi(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
 		else if (c == 'h') fn_kmer = optarg;
 		else if (c == 'g') opt.gap_penalty = atoi(optarg);
