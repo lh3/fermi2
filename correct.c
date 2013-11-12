@@ -677,7 +677,7 @@ static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 	}
 	for (; i1 < s1->n; ++i1) {
 		ecbase_t *b = &s1->a[i1];
-		b->q = b->q < diff? b->q : diff;
+		b->min_diff = b->min_diff < diff? b->min_diff : diff;
 	}
 }
 
@@ -691,7 +691,6 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 	int l, path_end[FMC_MAX_PATHS], n_paths = 0, max_i = 0;
 	correct1_stat_t s;
 
-	kh_clear(kache, a->cache);
 	a->heap.n = a->stack.n = 0;
 	s.penalty = s.n_paths = 0;
 	// find the first k-mer
@@ -810,6 +809,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 
 	ecs->n_diff = ecs->q_diff = ecs->cov = 0;
 	if (a == 0) a = _a = fmc_aux_init();
+	kh_clear(kache, a->cache);
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
 	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// forward strand
