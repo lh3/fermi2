@@ -466,7 +466,7 @@ void fmc_batch_destroy(fmc_batch_t *b)
 
 typedef struct { // NOTE: unaligned memory
 	uint8_t b:4, state:4;
-	uint8_t ob:4, f:4;
+	uint8_t ob:4, f:4; // ob/oq: original base/quality
 	uint8_t q, oq, min_diff;
 	int i;
 } ecbase_t;
@@ -643,8 +643,8 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		c->state = p->state;
 		c->i = o->a[p->i].i;
 		c->b = p->state == STATE_D? 4 : p->base;
-		c->q = is_match && o->a[p->i].b == p->base? o->a[p->i].q : 0;
-		c->ob = p->state == STATE_I? 4 : o->a[p->i].ob;
+		c->q = is_match && o->a[p->i].b == p->base? o->a[p->i].q : 0; // if we make a correction, reduce the base quality to 0.
+		c->ob = p->state == STATE_I? 4 : o->a[p->i].ob; // no ob/oq for inserted bases
 		c->oq = p->state == STATE_I? 0 : o->a[p->i].oq;
 		c->f = (p->state != STATE_N) + (is_match? o->a[p->i].f : 0);
 		c->min_diff = is_match? o->a[p->i].min_diff : 0xff;
@@ -829,7 +829,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 		ecbase_t *b = &a->seq.a[i];
 		int qual;
 		if (b->f) ++ecs->cov;
-		if (b->f || a->ori.a[b->i].b < 4) {
+		if (b->f || a->ori.a[b->i].b < 4) { // FIXME: this block is not quite right in the presence of gaps.
 			if (b->b != a->ori.a[b->i].b)
 				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
 			(*s)[i] = b->b == a->ori.a[b->i].b? "ACGTN"[b->b] : "acgtn"[b->b];
