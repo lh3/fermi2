@@ -295,19 +295,10 @@ static void collect_func(void *shared, int i, int tid)
 
 void fmc_kmer_stat(int suf_len, const fmc64_v *a)
 {
-	int i, j, k, n_suf = 1<<suf_len*2;
+	int i, n_suf = 1<<suf_len*2;
 	int64_t tot = 0;
-	for (i = 0; i < n_suf; ++i) {
-		const fmc64_v *ai = &a[i];
-		tot += ai->n<<1;
-		for (j = 0; j < ai->n; ++j) {
-			for (k = 0; k < 2; ++k) {
-				int val, q;
-				val = fmc_cell_get_val(ai->a[j], k);
-				q = fmc_cell_get_q1(val);
-			}
-		}
-	}
+	for (i = 0; i < n_suf; ++i)
+		tot += a[i].n<<1;
 	fprintf(stderr, "[M::%s] %ld k-mers\n", __func__, (long)tot);
 }
 
@@ -882,7 +873,7 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 	}
 	for (i = 0; i < opt->n_threads; ++i)
 		fmc_aux_destroy(f.a[i]);
-	free(f.a);
+	free(f.a); free(f.ecs);
 	fprintf(stderr, "[M::%s] corrected %d reads in %.3f sec (%.3f CPU sec)\n", __func__, n, realtime() - tr, cputime() - tc);
 }
 
