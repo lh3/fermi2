@@ -37,6 +37,7 @@ typedef struct {
 	int gap_penalty;
 	int max_heap_size;
 	int max_penalty_diff;
+	int show_ori_name;
 	int64_t batch_size;
 } fmc_opt_t;
 
@@ -848,12 +849,15 @@ static void correct_func(void *data, int i, int tid)
 	fmc_correct1(f->opt, f->h, &f->s[i], &f->q[i], f->a[tid], &f->ecs[i]);
 }
 
-void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, char **s, char **q, char **name)
+void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q, char **name, char **last_name, int64_t *last_id)
 {
 	for_correct_t f;
-	int i;
+	int i, j;
 	double tr, tc;
+	char *la = *last_name;
+	int64_t li = *last_id;
 
+	if (n <= 0) return;
 	tr = realtime(), tc = cputime();
 	f.a = calloc(opt->n_threads, sizeof(void*));
 	f.opt = opt, f.h = h, f.name = name, f.s = s, f.q = q;
@@ -866,11 +870,24 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int64_t start, int n, cha
 	} else kt_for(opt->n_threads, correct_func, &f, n);
 	for (i = 0; i < n; ++i) {
 		fmc_ecstat_t *s = &f.ecs[i];
-		printf("@%s ec:Z:%ld_%d_%d_%d_%d_%d:%d\n", f.name[i], (long)(start + i), s->cov, s->n_diff, s->q_diff, s->penalty,
-				s->n_paths[0], s->n_paths[1]);
+		int is_same = 0; // whether the current read in the same template as the last one
+		int64_t id;
+		char *ni = f.name[i];
+		if (la) {
+			for (j = 0; la[j] && ni[j] && la[j] == ni[j]; ++j);
+			if ((la[j] == 0 && ni[j] == 0) || (j > 0 && isdigit(la[j]) && isdigit(ni[j]) && la[j-1] == '/' && la[j+1] == 0 && ni[j+1] == 0))
+				is_same = 1;
+		}
+		id = is_same? li : li + 1;
+		la = ni, li = id;
+		if (opt->show_ori_name) printf("@%s", ni);
+		else printf("@%ld", (long)id);
+		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->cov, s->n_diff, s->q_diff, s->penalty, s->n_paths[0], s->n_paths[1]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
+	free(*last_name);
+	*last_name = strdup(la); *last_id = li;
 	for (i = 0; i < opt->n_threads; ++i)
 		fmc_aux_destroy(f.a[i]);
 	free(f.a); free(f.ecs);
@@ -886,13 +903,13 @@ int main_correct(int argc, char *argv[])
 	int c;
 	fmc_opt_t opt;
 	fmc64_v *kmer;
-	char *fn_kmer = 0;
-	int64_t start = 0;
+	char *fn_kmer = 0, *last_name = 0;
+	int64_t last_id = 0;
 
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "k:o:t:h:g:v:p:e:q:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ok:o:t:h:g:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg);
@@ -903,6 +920,7 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'g') opt.gap_penalty = atoi(optarg);
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
+		else if (c == 'O') opt.show_ori_name = 1;
 	}
 	if (!(opt.c.k&1)) {
 		++opt.c.k;
@@ -918,6 +936,7 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap correction [%d]\n", opt.gap_penalty);
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
+		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
 		fprintf(stderr, "       The dump can be loaded later with option -h.\n\n");
@@ -951,10 +970,10 @@ int main_correct(int argc, char *argv[])
 		fp = gzopen(argv[optind+1], "r");
 		ks = kseq_init(fp);
 		while ((b = fmc_batch_read(ks, opt.batch_size)) != 0) {
-			fmc_correct(&opt, h, start, b->n, b->s, b->q, b->name);
-			start += b->n;
+			fmc_correct(&opt, h, b->n, b->s, b->q, b->name, &last_name, &last_id);
 			fmc_batch_destroy(b);
 		}
+		free(last_name);
 		kseq_destroy(ks);
 		gzclose(fp);
 		for (i = 0; i < 1<<opt.c.suf_len*2; ++i)

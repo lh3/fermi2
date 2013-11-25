@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FM_VERSION "r65"
+#define FM_VERSION "r66"
 
 int main_diff(int argc, char *argv[]);
 int main_sub(int argc, char *argv[]);
@@ -22,6 +22,9 @@ int main(int argc, char *argv[])
 	liftrlimit();
 	if (argc == 1) {
 		fprintf(stderr, "\n");
+		fprintf(stderr, "Program: fermi2\n");
+		fprintf(stderr, "Version: %s\n", FM_VERSION);
+		fprintf(stderr, "Contact: http://hengli.uservoice.com/\n\n");
 		fprintf(stderr, "Usage:   fermi2 <command> [arguments]\n\n");
 		fprintf(stderr, "Command: diff     compare two FMD-indices\n");
 		fprintf(stderr, "         occflt   pick up reads containing low-occurrence k-mers\n");
@@ -29,12 +32,11 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "         unpack   unpack FM-index\n");
 		fprintf(stderr, "         correct  error correction\n");
 		fprintf(stderr, "         count    k-mer counting (inefficient)\n");
-		fprintf(stderr, "         version  print version\n\n");
+		fprintf(stderr, "\n");
 		return 1;
 	}
 	t_start = realtime();
-	if (strcmp(argv[1], "version") == 0) puts(FM_VERSION);
-	else if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
+	if (strcmp(argv[1], "diff") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "occflt") == 0) ret = main_diff(argc-1, argv+1);
 	else if (strcmp(argv[1], "diff2") == 0) ret = main_diff2(argc-1, argv+1);
 	else if (strcmp(argv[1], "sub") == 0) ret = main_sub(argc-1, argv+1);
@@ -46,7 +48,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "[E::%s] unknown command\n", __func__);
 		return 1;
 	}
-	if (ret == 0 && strcmp(argv[1], "version")) {
+	if (ret == 0) {
 		fprintf(stderr, "[M::%s] Version: %s\n", __func__, FM_VERSION);
 		fprintf(stderr, "[M::%s] CMD:", __func__);
 		for (i = 0; i < argc; ++i)
