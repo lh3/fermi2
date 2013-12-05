@@ -730,6 +730,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->c.k, a, &z, c->b,  STATE_M, c->oq, 0);
 					update_aux(opt->c.k, a, &z, c->ob, STATE_M, c->ob == b1? 0 : q1, 0);
 				} else update_aux(opt->c.k, a, &z, c->b, STATE_M, 0, 0);
+				if (b2 != 4 && q1 < 20) update_aux(opt->c.k, a, &z, b2, STATE_M, q1 > c->oq? q1 : c->oq, 0);
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->c.k, a, &z, b1, STATE_M, 3, 0);
 				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1, 0);
