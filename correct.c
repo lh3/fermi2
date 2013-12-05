@@ -644,11 +644,8 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		i = p->parent;
 	}
 	assert(last > 0);
-	for (i = last - 1; i >= 0; --i) {
+	for (i = last - 1; i >= 0; --i)
 		kv_push(ecbase_t, *s, o->a[i]);
-		if (last - i < k)
-			s->a[s->n-1].state = STATE_M;
-	}
 	for (i = 0; i < s->n>>1; ++i) { // reverse
 		ecbase_t tmp = s->a[i];
 		s->a[i] = s->a[s->n - 1 - i];
