@@ -623,7 +623,7 @@ static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, in
 	ks_heapup_ec(a->heap.n, a->heap.a);
 }
 
-static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecseq_t *s, int k)
+static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecseq_t *s)
 {
 	int i = start, last = -1;
 	s->n = 0;
@@ -769,7 +769,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			for (j = 0; j < n_paths; ++j) {
 				int i;
 				fprintf(stderr, "%.2d ", j);
-				path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[0], opt->c.k);
+				path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[0]);
 				for (i = 0; i < a->tmp[0].n; ++i) {
 					int s = a->tmp[0].a[i].state;
 					fputc(s == STATE_D? '-' : s == STATE_I? "acgtn"[a->tmp[0].a[i].b] : "ACGTN"[a->tmp[0].a[i].b], stderr);
@@ -779,9 +779,9 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			fprintf(stderr, "//\n");
 		}
 		s.penalty = a->stack.a[path_end[0]].penalty;
-		path_backtrack(&a->stack, path_end[0], &a->seq, &a->tmp[0], opt->c.k);
+		path_backtrack(&a->stack, path_end[0], &a->seq, &a->tmp[0]);
 		for (j = 1; j < n_paths; ++j) {
-			path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[1], opt->c.k);
+			path_backtrack(&a->stack, path_end[j], &a->seq, &a->tmp[1]);
 			path_adjustq(a->stack.a[path_end[j]].penalty - a->stack.a[path_end[0]].penalty, &a->tmp[0], &a->tmp[1]);
 		}
 		fmc_seq_cpy_no_del(&a->seq, &a->tmp[0]);
