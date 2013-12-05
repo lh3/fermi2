@@ -803,7 +803,7 @@ int fmc_cns_ungap(ecseq_t *s1, const ecseq_t *s2)
 			b1->min_diff = b1->min_diff > b2->min_diff? b1->min_diff : b2->min_diff;
 		} else { // conflicting correction; don't make a correction
 			b1->f = 0; b1->min_diff = 0;
-			b1->b = b1->ob;
+			b1->b = b1->ob; b1->q = b1->oq;
 			++n;
 		}
 	}
