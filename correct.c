@@ -37,7 +37,7 @@ typedef struct {
 	int gap_penalty;
 	int max_heap_size;
 	int max_penalty_diff;
-	int show_ori_name;
+	int show_ori_name, uni_dir;
 	int64_t batch_size;
 } fmc_opt_t;
 
@@ -57,7 +57,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->n_threads = 1;
 	opt->defQ = 17;
 	opt->ecQ = 20;
-	opt->gap_penalty = 40;
+	opt->gap_penalty = 0;
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
@@ -542,7 +542,7 @@ typedef kvec_t(echeap1_t)  echeap_t;
 typedef kvec_t(ecstack1_t) ecstack_t;
 
 typedef struct {
-	ecseq_t ori, tmp[2], seq;
+	ecseq_t ori, tmp[2], seq, ec_for;
 	echeap_t heap;
 	ecstack_t stack;
 	kmercache_t *cache;
@@ -788,9 +788,31 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 	return s;
 }
 
+int fmc_cns_ungap(ecseq_t *s1, const ecseq_t *s2)
+{
+	int i, n = 0;
+	assert(s1->n == s2->n);
+	for (i = 0; i < s1->n; ++i) {
+		ecbase_t *b1 = &s1->a[i];
+		const ecbase_t *b2 = &s2->a[i];
+		if (b2->state == STATE_N) continue;
+		if (b1->state == STATE_N) {
+			*b1 = *b2;
+		} else if (b1->b == b2->b) { // same correction in both directions
+			b1->f = b1->f > b2->f? b1->f : b2->f;
+			b1->min_diff = b1->min_diff > b2->min_diff? b1->min_diff : b2->min_diff;
+		} else { // conflicting correction; don't make a correction
+			b1->f = 0; b1->min_diff = 0;
+			b1->b = b1->ob;
+			++n;
+		}
+	}
+	return n;
+}
+
 typedef struct {
 	int n_diff, q_diff, n_paths[2];
-	int penalty, cov;
+	int penalty, cov, n_conflict;
 } fmc_ecstat_t;
 
 void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
@@ -799,17 +821,26 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	int i;
 	correct1_stat_t st[2];
 
-	ecs->n_diff = ecs->q_diff = ecs->cov = 0;
+	if (!opt->uni_dir) assert(opt->gap_penalty == 0);
+	ecs->n_diff = ecs->q_diff = ecs->cov = ecs->n_conflict = 0;
 	if (a == 0) a = _a = fmc_aux_init();
 	kh_clear(kache, a->cache);
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
 	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// forward strand
 	st[0] = fmc_correct1_aux(opt, h, a);
+	if (!opt->uni_dir)  { // in the bi-mode, we correct the original sequence, not the forward-corrected sequence.
+		fmc_seq_cpy_no_del(&a->ec_for, &a->seq);
+		fmc_seq_cpy_no_del(&a->seq, &a->ori);
+	}
 	// reverse strand
 	fmc_seq_revcomp(&a->seq);
 	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
+	if (!opt->uni_dir) {
+		ecs->n_conflict = fmc_cns_ungap(&a->ec_for, &a->seq);
+		fmc_seq_cpy_no_del(&a->seq, &a->ec_for);
+	}
 	// generate final stats
 	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
 	ecs->penalty = st[0].penalty + st[1].penalty;
@@ -909,7 +940,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "Ok:o:t:h:g:v:p:e:q:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ouk:o:t:h:g:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg);
@@ -921,6 +952,7 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 		else if (c == 'O') opt.show_ori_name = 1;
+		else if (c == 'u') opt.uni_dir = 1;
 	}
 	if (!(opt.c.k&1)) {
 		++opt.c.k;
@@ -934,8 +966,9 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -o INT     min occurrence for a solid k-mer [%d]\n", opt.c.min_occ);
 		fprintf(stderr, "         -d INT     correct singletons out of INT bases [%d]\n\n", opt.c.q1_depth);
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
-		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap correction [%d]\n", opt.gap_penalty);
+		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap ec [%d]\n", opt.gap_penalty);
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
+		fprintf(stderr, "         -u         correct reverse strand on the corrected sequence\n");
 		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
@@ -943,6 +976,10 @@ int main_correct(int argc, char *argv[])
 		return 1;
 	}
 	opt.c.suf_len = opt.c.k > 18? opt.c.k - 18 : 1;
+	if (opt.gap_penalty > 0 && opt.uni_dir == 0) {
+		fprintf(stderr, "[W::%s] gap correction only works with option '-u'.\n", __func__);
+		return 1;
+	}
 
 	if (fn_kmer) {
 		FILE *fp;
