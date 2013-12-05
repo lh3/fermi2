@@ -913,7 +913,7 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q
 		la = ni, li = id;
 		if (opt->show_ori_name) printf("@%s", ni);
 		else printf("@%ld", (long)id);
-		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->cov, s->n_diff, s->q_diff, s->penalty, s->n_paths[0], s->n_paths[1]);
+		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->cov, s->n_diff, s->q_diff, s->n_conflict, s->n_paths[0], s->n_paths[1]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
