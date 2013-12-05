@@ -476,6 +476,7 @@ int fmc_seq_conv(const char *s, const char *q, int defQ, ecseq_t *seq)
 		c->b = c->ob = seq_nt6_table[(int)s[i]] - 1;
 		c->q = q? q[i] - 33 : defQ;
 		c->q = c->oq = c->q < FMC_Q_MAX? c->q : FMC_Q_MAX;
+		c->q = c->q > 5? c->q : 5;
 		c->state = STATE_N;
 		c->i = i;
 		c->f = 0;
