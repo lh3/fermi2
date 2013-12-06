@@ -79,7 +79,7 @@
 #ifndef KSTRING_T
 #define KSTRING_T kstring_t
 typedef struct __kstring_t {
-	size_t l, m;
+	unsigned l, m;
 	char *s;
 } kstring_t;
 #endif
@@ -227,7 +227,7 @@ typedef struct __kstring_t {
 #define KSEQ_DECLARE(type_t) \
 	__KS_TYPE(type_t) \
 	__KSEQ_TYPE(type_t) \
-	extern kseq_t *kseq_init(type_t fd); \
+	kseq_t *kseq_init(type_t fd); \
 	void kseq_destroy(kseq_t *ks); \
 	int kseq_read(kseq_t *seq);
 
