@@ -5,13 +5,13 @@
 #include <stdlib.h>
 #include "kstring.h"
 
-#define MOG_F_READ_ORI   0x1
-#define MOG_F_READ_TAG   0x2
-#define MOG_F_READnMERGE 0x4
-#define MOG_F_CLEAN      0x10
-#define MOG_F_AGGRESSIVE 0x20
-#define MOG_F_NO_AMEND   0x40
-#define MOG_F_NO_SIMPL   0x80
+#define MAG_F_READ_ORI   0x1
+#define MAG_F_READ_TAG   0x2
+#define MAG_F_READnMERGE 0x4
+#define MAG_F_CLEAN      0x10
+#define MAG_F_AGGRESSIVE 0x20
+#define MAG_F_NO_AMEND   0x40
+#define MAG_F_NO_SIMPL   0x80
 
 typedef struct {
 	int flag, max_arc, n_iter, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx;

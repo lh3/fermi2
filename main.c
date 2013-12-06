@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FM_VERSION "r78"
+#define FM_VERSION "r79"
 
 int fm_verbose = 3;
 
@@ -14,6 +14,7 @@ int main_diff2(int argc, char *argv[]);
 int main_inspectk(int argc, char *argv[]);
 int main_interleave(int argc, char *argv[]);
 int main_assemble(int argc, char *argv[]);
+int main_simplify(int argc, char *argv[]);
 
 void liftrlimit(void);
 double cputime(void);
@@ -37,7 +38,8 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "         correct     error correction\n");
 		fprintf(stderr, "         count       k-mer counting (inefficient)\n");
 		fprintf(stderr, "         interleave  convert 2-file PE fastq to interleaved fastq\n");
-		fprintf(stderr, "         assemble    assemble reads into unitigs\n");
+		fprintf(stderr, "         assemble    assemble reads into a unitig graph\n");
+		fprintf(stderr, "         simplify    simplify a unitig graph\n");
 		fprintf(stderr, "\n");
 		return 1;
 	}
@@ -52,6 +54,7 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "inspectk") == 0) ret = main_inspectk(argc-1, argv+1);
 	else if (strcmp(argv[1], "interleave") == 0) ret = main_interleave(argc-1, argv+1);
 	else if (strcmp(argv[1], "assemble") == 0) ret = main_assemble(argc-1, argv+1);
+	else if (strcmp(argv[1], "simplify") == 0) ret = main_simplify(argc-1, argv+1);
 	else {
 		fprintf(stderr, "[E::%s] unknown command\n", __func__);
 		return 1;

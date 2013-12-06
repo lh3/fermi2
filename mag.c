@@ -233,7 +233,7 @@ mag_t *mag_g_read(const char *fn, const magopt_t *opt)
 				else if (max2 < r->y) max2 = r->y;
 			}
 			++q; // skip the tailing blank
-			if (!(opt->flag & MOG_F_READ_ORI)) {
+			if (!(opt->flag & MAG_F_READ_ORI)) {
 				double thres = (int)(max2 * opt->min_dratio0 + .499);
 				for (i = 0; i < nei.n; ++i)
 					if (nei.a[i].y < thres) is_mod = 1, nei.a[i].y = 0; // to be deleted in rmdup_128v()
@@ -247,7 +247,7 @@ mag_t *mag_g_read(const char *fn, const magopt_t *opt)
 		}
 		// test if to cut a tip
 		p->len = seq->seq.l;
-		if (!(opt->flag & MOG_F_READ_ORI) && (p->nei[0].n == 0 || p->nei[1].n == 0) && p->len < opt->min_elen && p->nsr == 1) {
+		if (!(opt->flag & MAG_F_READ_ORI) && (p->nei[0].n == 0 || p->nei[1].n == 0) && p->len < opt->min_elen && p->nsr == 1) {
 			free(p->nei[0].a); free(p->nei[1].a); // only ->nei[2] have been allocated so far
 			--g->v.n;
 			is_mod = 1;
@@ -274,13 +274,13 @@ mag_t *mag_g_read(const char *fn, const magopt_t *opt)
 		fprintf(stderr, "[M::%s] read the graph and constructed the dictionary in %.3f sec\n", __func__, cputime() - t);
 	if (is_mod && fm_verbose >= 3)
 		fprintf(stderr, "[M::%s] the graph is modified during reading.\n", __func__);
-	if (is_mod || !(opt->flag & MOG_F_NO_AMEND)) {
+	if (is_mod || !(opt->flag & MAG_F_NO_AMEND)) {
 		t = cputime();
 		mag_amend(g);
 		fprintf(stderr, "[M::%s] amended the graph in %.3f sec.\n", __func__, cputime() - t);
 	}
 	g->rdist = mag_cal_rdist(g);
-	if (opt->flag & MOG_F_READnMERGE) mag_g_merge(g, 1);
+	if (opt->flag & MAG_F_READnMERGE) mag_g_merge(g, 1);
 	return g;
 }
 
@@ -594,7 +594,7 @@ magopt_t *mag_init_opt()
 	magopt_t *o;
 
 	o = calloc(1, sizeof(magopt_t));
-	o->flag = MOG_F_READnMERGE;
+	o->flag = MAG_F_READnMERGE;
 	o->max_arc = 512;
 	o->min_dratio0 = 0.7;
 
@@ -617,7 +617,7 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 	double t;
 	int j;
 
-	if ((opt->flag & MOG_F_CLEAN) == 0) return;
+	if ((opt->flag & MAG_F_CLEAN) == 0) return;
 	if (g->min_ovlp < opt->min_ovlp) g->min_ovlp = opt->min_ovlp;
 	//mag_vh_simplify_bubble(g, tid2idd(g->h, 34356802), 512, 500, a); exit(0); // a good case
 	mag_g_rm_vext(g, opt->min_elen, opt->min_ensr < 3? opt->min_ensr : 3);
@@ -637,20 +637,20 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 	}
 	if (fm_verbose >= 3)
 		fprintf(stderr, "[M::%s] finished another %d rounds of tip removal in %.3f sec.\n", __func__, opt->n_iter, cputime() - t);
-	if (opt->flag & MOG_F_AGGRESSIVE) {
+	if (opt->flag & MAG_F_AGGRESSIVE) {
 		t = cputime();
 		mag_g_pop_open(g, opt->min_elen);
 		if (fm_verbose >= 3)
 			fprintf(stderr, "[M::%s] popped open bubbles in %.3f sec.\n", __func__, cputime() - t);
 	}
-	if (!(opt->flag & MOG_F_NO_SIMPL)) {
+	if (!(opt->flag & MAG_F_NO_SIMPL)) {
 		t = cputime();
 		mag_g_simplify_bubble(g, opt->max_bvtx, opt->max_bdist);
 		if (fm_verbose >= 3)
 			fprintf(stderr, "[M::%s] simplified complex bubbles in %.3f sec.\n", __func__, cputime() - t);
 	}
 	t = cputime();
-	mag_g_pop_simple(g, opt->max_bcov, opt->max_bfrac, opt->flag & MOG_F_AGGRESSIVE);
+	mag_g_pop_simple(g, opt->max_bcov, opt->max_bfrac, opt->flag & MAG_F_AGGRESSIVE);
 	if (fm_verbose >= 3)
 		fprintf(stderr, "[M::%s] popped closed bubbles in %.3f sec.\n", __func__, cputime() - t);
 	if (opt->min_insr >= 2) {
@@ -663,11 +663,63 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 			fprintf(stderr, "[M::%s] removed interval low-cov vertices in %.3f sec.\n", __func__, cputime() - t);
 	}
 	t = cputime();
-	if (opt->flag & MOG_F_AGGRESSIVE) mag_g_pop_open(g, opt->min_elen);
+	if (opt->flag & MAG_F_AGGRESSIVE) mag_g_pop_open(g, opt->min_elen);
 	else {
 		mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
 		mag_g_merge(g, 0);
 	}
 	if (fm_verbose >= 3)
 		fprintf(stderr, "[M::%s] coverage based graph cleanup in %.3f sec.\n", __func__, cputime() - t);
+}
+
+int main_simplify(int argc, char *argv[])
+{
+	mag_t *g;
+	int c;
+	magopt_t *opt;
+	opt = mag_init_opt();
+	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:n:w:r:S")) >= 0) {
+		switch (c) {
+		case 'F': opt->flag |= MAG_F_NO_AMEND; break;
+		case 'C': opt->flag |= MAG_F_CLEAN; break;
+		case 'A': opt->flag |= MAG_F_AGGRESSIVE; break;
+		case 'O': opt->flag |= MAG_F_READ_ORI; break;
+		case 'S': opt->flag |= MAG_F_NO_SIMPL; break;
+		case 'd': opt->min_dratio0 = atof(optarg); break;
+		case 'N': opt->max_arc  = atoi(optarg); break;
+		case 'l': opt->min_elen = atoi(optarg); break;
+		case 'e': opt->min_ensr = atoi(optarg); break;
+		case 'i': opt->min_insr = atoi(optarg); break;
+		case 'o': opt->min_ovlp = atoi(optarg); break;
+		case 'n': opt->n_iter   = atoi(optarg); break;
+		case 'R': opt->min_dratio1 = atof(optarg); break;
+		case 'w': opt->max_bcov = atof(optarg); break;
+		case 'r': opt->max_bfrac= atof(optarg); break;
+		}
+	}
+	if (argc == optind) {
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage:   fermi2 simplify [options] <in.mog>\n\n");
+		fprintf(stderr, "Options: -N INT      read maximum INT neighbors per node [%d]\n", opt->max_arc);
+		fprintf(stderr, "         -d FLOAT    drop a neighbor if relative overlap ratio below FLOAT [%.2f]\n\n", opt->min_dratio0); 
+		fprintf(stderr, "         -C          clean the graph\n");
+		fprintf(stderr, "         -l INT      minimum tip length [%d]\n", opt->min_elen);
+		fprintf(stderr, "         -e INT      minimum tip read count [%d]\n", opt->min_ensr);
+		fprintf(stderr, "         -i INT      minimum internal unitig read count [%d]\n", opt->min_insr);
+		fprintf(stderr, "         -o INT      minimum overlap [%d]\n", opt->min_ovlp);
+		fprintf(stderr, "         -R FLOAT    minimum relative overlap ratio [%.2f]\n", opt->min_dratio1);
+		fprintf(stderr, "         -n INT      number of iterations [%d]\n", opt->n_iter);
+		fprintf(stderr, "         -A          aggressive bubble popping\n");
+		fprintf(stderr, "         -S          skip bubble simplification\n");
+		fprintf(stderr, "         -w FLOAT    minimum coverage to keep a bubble [%.2f]\n", opt->max_bcov);
+		fprintf(stderr, "         -r FLOAT    minimum fraction to keep a bubble [%.2f]\n", opt->max_bfrac);
+		fprintf(stderr, "\n");
+		return 1;
+	}
+	g = mag_g_read(argv[optind], opt);
+	mag_g_clean(g, opt);
+	mag_g_print(g);
+	mag_g_destroy(g);
+	free(opt);
+	return 0;
 }
