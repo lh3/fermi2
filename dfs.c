@@ -99,7 +99,7 @@ void dfs_worker(void *data, long suf, int tid)
 	shared_t *d = (shared_t*)data;
 	fm_dfs_core(d->n, d->e, d->is_half, d->max_k, d->suf_len, suf, d->func, d->data);
 	if (dfs_verbose >= 4)
-		fprintf(stderr, "[M::%s] processed suffix %d in thread %d\n", __func__, suf, tid);
+		fprintf(stderr, "[M::%s] processed suffix %ld in thread %d\n", __func__, suf, tid);
 }
 
 void fm_dfs(int n, rld_t **e, int max_k, int is_half, fmdfs_f func, void *data, int n_threads)
