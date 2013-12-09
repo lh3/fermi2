@@ -72,9 +72,9 @@ typedef struct {
 	int n_threads, is_both;
 } shared_t;
 
-void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n);
+void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
 
-static void worker(void *data, int i, int tid)
+static void worker(void *data, long i, int tid)
 {
 	shared_t *d = (shared_t*)data;
 	int64_t x;

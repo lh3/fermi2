@@ -63,7 +63,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
 }
 
-void kt_for(int n_threads, void (*func)(void*,int,int), void *shared, int n_items);
+void kt_for(int n_threads, void (*func)(void*,long,int), void *shared, long n_items);
 double cputime(void);
 double realtime(void);
 void liftrlimit(void);
@@ -288,7 +288,7 @@ typedef struct {
 	int depth;
 } for_collect_t;
 
-static void collect_func(void *shared, int i, int tid)
+static void collect_func(void *shared, long i, int tid)
 {
 	for_collect_t *s = (for_collect_t*)shared;
 	fmc_collect1(s->e, s->qtab, s->opt->c.suf_len, s->depth, s->opt->c.min_occ, s->opt->c.max_ec_depth, s->opt->c.q1_depth, &s->suf[i], &s->kmer[i]);
@@ -866,7 +866,7 @@ typedef struct {
 	int64_t start;
 } for_correct_t;
 
-static void correct_func(void *data, int i, int tid)
+static void correct_func(void *data, long i, int tid)
 {
 	for_correct_t *f = (for_correct_t*)data;
 	if (fmc_verbose >= 5) fprintf(stderr, ">%s\n", f->name[i]);

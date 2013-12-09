@@ -1,23 +1,26 @@
 #include <pthread.h>
 #include <stdlib.h>
+#include <limits.h>
 
 struct kt_for_t;
 
 typedef struct {
 	struct kt_for_t *t;
-	int i;
+	long i;
 } ktf_worker_t;
 
 typedef struct kt_for_t {
-	int n_threads, n;
+	int n_threads;
+	long n;
 	ktf_worker_t *w;
-	void (*func)(void*,int,int);
+	void (*func)(void*,long,int);
 	void *data;
 } kt_for_t;
 
-static inline int steal_work(kt_for_t *t)
+static inline long steal_work(kt_for_t *t)
 {
-	int i, k, min = 0x7fffffff, min_i = -1;
+	int i, min_i = -1;
+	long k, min = LONG_MAX;
 	for (i = 0; i < t->n_threads; ++i)
 		if (min > t->w[i].i) min = t->w[i].i, min_i = i;
 	k = __sync_fetch_and_add(&t->w[min_i].i, t->n_threads);
@@ -27,7 +30,7 @@ static inline int steal_work(kt_for_t *t)
 static void *ktf_worker(void *data)
 {
 	ktf_worker_t *w = (ktf_worker_t*)data;
-	int i;
+	long i;
 	for (;;) {
 		i = __sync_fetch_and_add(&w->i, w->t->n_threads);
 		if (i >= w->t->n) break;
@@ -38,7 +41,7 @@ static void *ktf_worker(void *data)
 	pthread_exit(0);
 }
 
-void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n)
+void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n)
 {
 	int i;
 	kt_for_t t;

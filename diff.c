@@ -116,14 +116,14 @@ typedef struct {
 	uint64_t *sub;
 } shared_t;
 
-static void worker(void *data, int i, int tid)
+static void worker(void *data, long i, int tid)
 {
 	shared_t *d = (shared_t*)data;
 	if (!d->eref) occflt_core(d->eqry, d->sub, d->min_k, d->max_k, d->min_occ, SUF_LEN, i);
 	else contrast_core(d->eqry, d->eref, d->sub, d->min_k, d->max_k, d->min_occ, SUF_LEN, i);
 }
 
-void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n);
+void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
 
 uint64_t *fm_diff(const rld_t *eqry, const rld_t *eref, int min_k, int max_k, int min_occ, int n_threads)
 {

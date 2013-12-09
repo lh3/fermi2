@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <pthread.h>
 #include <string.h>
 #include <zlib.h>
 #include <math.h>
@@ -364,89 +363,64 @@ static int unitig1(aux_t *a, int64_t seed, kstring_t *s, kstring_t *cov, uint64_
 	return 0;
 }
 
-static void unitig_core(const rld_t *e, int min_match, int start, int step, uint64_t *used, uint64_t *bend, uint64_t *visited, magv_v *nodes)
-{
-	uint64_t i;
-	int max_l = 0;
+typedef struct {
+	long max_l;
 	aux_t a;
 	kstring_t str, cov, out;
 	magv_t z;
-
-	// initialize aux_t and all the vectors
-	memset(&a, 0, sizeof(aux_t));
-	memset(&z, 0, sizeof(magv_t));
-	str.l = str.m = cov.l = cov.m = out.l = out.m = 0; str.s = cov.s = out.s = 0;
-	a.e = e; a.min_match = min_match; a.used = used; a.bend = bend;
-	// the core loop
-	for (i = start; i < e->mcnt[1]; i += step) {
-		if (unitig1(&a, i, &str, &cov, z.k, z.nei, &z.nsr) >= 0) { // then we keep the unitig
-			uint64_t *p[2], x[2];
-			p[0] = visited + (z.k[0]>>6); x[0] = 1LLU<<(z.k[0]&0x3f);
-			p[1] = visited + (z.k[1]>>6); x[1] = 1LLU<<(z.k[1]&0x3f);
-			if ((__sync_fetch_and_or(p[0], x[0])&x[0]) || (__sync_fetch_and_or(p[1], x[1])&x[1])) continue;
-			z.len = str.l;
-			if (max_l < str.m) {
-				max_l = str.m;
-				z.seq = realloc(z.seq, max_l);
-				z.cov = realloc(z.cov, max_l);
-			}
-			memcpy(z.seq, str.s, z.len);
-			memcpy(z.cov, cov.s, z.len + 1);
-			if (nodes) { // keep in the nodes array
-				magv_t *q;
-				kv_pushp(magv_t, *nodes, &q);
-				mag_v_copy_to_empty(q, &z);
-			} else { // print out
-				mag_v_write(&z, &out);
-				fputs(out.s, stdout);
-			}
-		}
-	}
-	free(a.a[0].a); free(a.a[1].a); free(a.nei.a); free(a.cat.a);
-	free(z.nei[0].a); free(z.nei[1].a); free(z.seq); free(z.cov);
-	free(a.str.s); free(str.s); free(cov.s); free(out.s);
-}
+} thrdat_t;
 
 typedef struct {
 	uint64_t *used, *bend, *visited;
 	const rld_t *e;
-	int min_match, start, step;
+	thrdat_t *d;
+	int min_match;
 } worker_t;
 
-static void *worker(void *data)
+static void worker(void *data, long _i, int tid)
 {
 	worker_t *w = (worker_t*)data;
-	unitig_core(w->e, w->min_match, w->start, w->step, w->used, w->bend, w->visited, 0);
-	return 0;
+	thrdat_t *d = &w->d[tid];
+	uint64_t i = (_i * 16807) % w->e->mcnt[1];
+	if (unitig1(&d->a, i, &d->str, &d->cov, d->z.k, d->z.nei, &d->z.nsr) >= 0) { // then we keep the unitig
+		uint64_t *p[2], x[2];
+		p[0] = w->visited + (d->z.k[0]>>6); x[0] = 1LLU<<(d->z.k[0]&0x3f);
+		p[1] = w->visited + (d->z.k[1]>>6); x[1] = 1LLU<<(d->z.k[1]&0x3f);
+		if ((__sync_fetch_and_or(p[0], x[0])&x[0]) || (__sync_fetch_and_or(p[1], x[1])&x[1])) return;
+		d->z.len = d->str.l;
+		if (d->max_l < d->str.m) {
+			d->max_l = d->str.m;
+			d->z.seq = realloc(d->z.seq, d->max_l);
+			d->z.cov = realloc(d->z.cov, d->max_l);
+		}
+		memcpy(d->z.seq, d->str.s, d->z.len);
+		memcpy(d->z.cov, d->cov.s, d->z.len + 1);
+		mag_v_write(&d->z, &d->out);
+		fputs(d->out.s, stdout);
+	}
 }
 
 int fm6_unitig(const rld_t *e, int min_match, int n_threads)
 {
-	uint64_t *used, *bend, *visited;
-	pthread_t *tid;
-	pthread_attr_t attr;
-	worker_t *w;
+	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, int n);
+	worker_t w;
 	int j;
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	w = (worker_t*)calloc(n_threads, sizeof(worker_t));
-	tid = (pthread_t*)calloc(n_threads, sizeof(pthread_t));
-	used    = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);
-	bend    = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);
-	visited = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);
+	w.used    = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);
+	w.bend    = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);
+	w.visited = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);
+	w.e       = e;
 	assert(e->mcnt[1] >= n_threads * 2);
+	w.d = calloc(n_threads, sizeof(thrdat_t));
 	for (j = 0; j < n_threads; ++j) {
-		worker_t *ww = w + j;
-		ww->e = e;
-		ww->min_match = min_match;
-		ww->start = j;
-		ww->step = n_threads;
-		ww->used = used; ww->bend = bend; ww->visited = visited;
+		w.d[j].a.e = e; w.d[j].a.min_match = min_match; w.d[j].a.used = w.used; w.d[j].a.bend = w.bend;
 	}
-	for (j = 0; j < n_threads; ++j) pthread_create(&tid[j], &attr, worker, w + j);
-	for (j = 0; j < n_threads; ++j) pthread_join(tid[j], 0);
-	free(tid); free(used); free(bend); free(visited); free(w);
+	kt_for(n_threads, worker, &w, e->mcnt[1]);
+	for (j = 0; j < n_threads; ++j) {
+		free(w.d[j].a.a[0].a); free(w.d[j].a.a[1].a); free(w.d[j].a.nei.a); free(w.d[j].a.cat.a);
+		free(w.d[j].z.nei[0].a); free(w.d[j].z.nei[1].a); free(w.d[j].z.seq); free(w.d[j].z.cov);
+		free(w.d[j].a.str.s); free(w.d[j].str.s); free(w.d[j].cov.s); free(w.d[j].out.s);
+	}
+	free(w.used); free(w.bend); free(w.visited);
 	return 0;
 }
 

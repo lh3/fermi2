@@ -94,7 +94,7 @@ typedef struct {
 	fmdfs_f func;
 } shared_t;
 
-void dfs_worker(void *data, int suf, int tid)
+void dfs_worker(void *data, long suf, int tid)
 {
 	shared_t *d = (shared_t*)data;
 	fm_dfs_core(d->n, d->e, d->is_half, d->max_k, d->suf_len, suf, d->func, d->data);
@@ -104,7 +104,7 @@ void dfs_worker(void *data, int suf, int tid)
 
 void fm_dfs(int n, rld_t **e, int max_k, int is_half, fmdfs_f func, void *data, int n_threads)
 {
-	extern void kt_for(int n_threads, void (*func)(void*,int,int), void *data, int n);
+	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
 	shared_t d;
 	int n_suf;
 	d.n = n, d.e = e, d.data = data, d.func = func, d.max_k = max_k, d.is_half = is_half;
