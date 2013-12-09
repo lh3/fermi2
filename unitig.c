@@ -402,7 +402,7 @@ static void worker(void *data, long _i, int tid)
 
 int fm6_unitig(const rld_t *e, int min_match, int n_threads)
 {
-	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, int n);
+	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
 	worker_t w;
 	int j;
 	w.used    = (uint64_t*)calloc((e->mcnt[1] + 63)/64, 8);

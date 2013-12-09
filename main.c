@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FM_VERSION "r81"
+#define FM_VERSION "r82"
 
 int fm_verbose = 3;
 
