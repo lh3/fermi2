@@ -214,7 +214,7 @@ rldintv_t *fmc_traverse(const rld_t *e, int depth) // traverse FM-index up to $d
 	return ret;
 }
 
-int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth, int q1_depth) // given a "tip" compute the consensus and the quality
+int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth, int q1_depth, int min_occ) // given a "tip" compute the consensus and the quality
 {
 	int c, max_c, max_c2, q1, q2;
 	uint64_t max, max2, rest, rest2, sum;
@@ -228,7 +228,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth, int q
 		q1 = q2 = FMC_Q_NULL;
 	} else if (rest <= 1 && sum >= q1_depth) {
 		q1 = q2 = FMC_Q_1;
-	} else if (rest > max_ec_depth) {
+	} else if (max < min_occ || rest > max_ec_depth) {
 		q1 = q2 = 0;
 	} else {
 		if (sum > 255) {
@@ -261,9 +261,9 @@ void fmc_collect1(const rld_t *e, uint8_t *qtab[2], int suf_len, int depth, int 
 			int val[2];
 			kv_pushp(uint64_t, *a, &p);
 			rld_extend(e, &top, t, 1); // backward tip
-			val[0] = fmc_intv2tip(qtab, t, max_ec_depth, q1_depth);
+			val[0] = fmc_intv2tip(qtab, t, max_ec_depth, q1_depth, min_occ);
 			rld_extend(e, &top, t, 0); // forward tip
-			val[1] = fmc_intv2tip(qtab, t, max_ec_depth, q1_depth);
+			val[1] = fmc_intv2tip(qtab, t, max_ec_depth, q1_depth, min_occ);
 			*p = fmc_cell_set_keyval(x, val[0], val[1]);
 		} else {
 			int c, end = (suf_len + (top.info>>2)) == (suf_len + depth) / 2? 2 : 4;
