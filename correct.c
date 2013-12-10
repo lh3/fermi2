@@ -48,7 +48,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->c.suf_len = 1;
 	opt->c.min_occ = 3;
 	opt->c.q1_depth = 17; // if there q1_depth bases but only one 2nd-best, correct regardless of the quality
-	opt->c.max_ec_depth = 2; // if there are more than max_ec_depth 2nd-best bases, don't correct
+	opt->c.max_ec_depth = opt->c.min_occ - 1; // if there are more than max_ec_depth 2nd-best bases, don't correct
 	opt->c.a1 = 0.05;
 	opt->c.a2 = 10;
 	opt->c.err = 0.005;
@@ -630,7 +630,7 @@ static void path_backtrack(const ecstack_t *a, int start, const ecseq_t *o, ecse
 		c->q = is_match && o->a[p->i].b == p->base? o->a[p->i].q : 0; // if we make a correction, reduce the base quality to 0.
 		c->ob = p->state == STATE_I? 4 : o->a[p->i].ob; // no ob/oq for inserted bases
 		c->oq = p->state == STATE_I? 0 : o->a[p->i].oq;
-		c->f = (p->state != STATE_N) + (is_match? o->a[p->i].f : 0);
+		c->f = (p->state != STATE_N);
 		c->min_diff = is_match? o->a[p->i].min_diff : 0xff;
 		last = p->i;
 		i = p->parent;
@@ -720,7 +720,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				update_aux(opt->c.k, a, &z, b1, STATE_M, 3, 0);
 				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1, 0);
 			} else if (is_solid && (z.i < z.last_solid + opt->c.k || q1>>1 < FMC_Q_1)) {
-				update_aux(opt->c.k, a, &z, c->b, STATE_N, q1, 0);
+				update_aux(opt->c.k, a, &z, c->b, STATE_N, q1, q1 >= opt->ecQ? 1 : 0);
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				if (!is_excessive || q1 <= c->q)
 					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1,   0);
@@ -931,7 +931,7 @@ int main_correct(int argc, char *argv[])
 	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
-		else if (c == 'o') opt.c.min_occ = atoi(optarg);
+		else if (c == 'o') opt.c.min_occ = atoi(optarg), opt.c.max_ec_depth = opt.c.min_occ - 1;
 		else if (c == 'p') opt.c.prior = atof(optarg);
 		else if (c == 'e') opt.c.err = atof(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
