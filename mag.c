@@ -699,7 +699,7 @@ int main_simplify(int argc, char *argv[])
 	}
 	if (argc == optind) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:   fermi2 simplify [options] <in.mog>\n\n");
+		fprintf(stderr, "Usage:   fermi2 simplify [options] <in.mag>\n\n");
 		fprintf(stderr, "Options: -N INT      read maximum INT neighbors per node [%d]\n", opt->max_arc);
 		fprintf(stderr, "         -d FLOAT    drop a neighbor if relative overlap ratio below FLOAT [%.2f]\n\n", opt->min_dratio0); 
 		fprintf(stderr, "         -C          clean the graph\n");

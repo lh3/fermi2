@@ -37,7 +37,7 @@ typedef struct {
 	int gap_penalty;
 	int max_heap_size;
 	int max_penalty_diff;
-	int show_ori_name, uni_dir;
+	int show_ori_name;
 	int64_t batch_size;
 } fmc_opt_t;
 
@@ -48,7 +48,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->c.suf_len = 1;
 	opt->c.min_occ = 3;
 	opt->c.q1_depth = 17; // if there q1_depth bases but only one 2nd-best, correct regardless of the quality
-	opt->c.max_ec_depth = 5; // if there are more than max_ec_depth 2nd-best bases, don't correct
+	opt->c.max_ec_depth = 2; // if there are more than max_ec_depth 2nd-best bases, don't correct
 	opt->c.a1 = 0.05;
 	opt->c.a2 = 10;
 	opt->c.err = 0.005;
@@ -705,20 +705,16 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] (%d,%c%d), size=%ld, penalty=%d, state=%d\n", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->seq.a[z.i].q, a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
 		c = &a->seq.a[z.i];
 		max_i = max_i > z.i? max_i : z.i;
-		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 2));
+		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 3));
 		val = kmer_lookup(opt->c.k, opt->c.suf_len, z.kmer, h, a->cache);
 		if (val >= 0 && fmc_cell_has_b1(val)) { // present in the hash table
 			int b1 = fmc_cell_get_b1(val);
 			int b2 = fmc_cell_has_b2(val)? fmc_cell_get_b2(val) : 4;
 			int q1 = fmc_cell_get_q1(val);
 			int q2 = fmc_cell_get_q2(val);
-			int is_corrected = ((c->state == STATE_M || c->state == STATE_N) && c->b != c->ob);
 			int is_solid = (opt->ecQ > 0 && c->q >= opt->ecQ);
 			if (b1 == c->b) { // read base matching the consensus
-				if (is_corrected) {
-					update_aux(opt->c.k, a, &z, c->b,  STATE_M, c->oq, 0);
-					update_aux(opt->c.k, a, &z, c->ob, STATE_M, c->ob == b1? 0 : q1, 0);
-				} else update_aux(opt->c.k, a, &z, c->b, STATE_M, 0, 0);
+				update_aux(opt->c.k, a, &z, c->b, STATE_M, 0, 0);
 				if (b2 != 4 && q1 < 20 && !is_solid) update_aux(opt->c.k, a, &z, b2, STATE_M, q1 > c->oq? q1 : c->oq, 0);
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->c.k, a, &z, b1, STATE_M, 3, 0);
@@ -730,12 +726,14 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1,   0);
 				if (!is_excessive || q1 >= c->q)
 					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q, is_solid);
+				/*
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
 						update_aux(opt->c.k, a, &z, b1,STATE_I, opt->gap_penalty, is_solid);
 					if (z.state != STATE_I)
 						update_aux(opt->c.k, a, &z, b1,STATE_D, opt->gap_penalty, is_solid);
 				}
+				*/
 			} else { // we are looking at three different bases
 				if (!is_excessive || q1 + q2 <= c->q)
 					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1 + q2, 0);
@@ -743,12 +741,14 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q,    is_solid);
 				if (!is_excessive)
 					update_aux(opt->c.k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, is_solid);
+				/*
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
 						update_aux(opt->c.k, a, &z, b1, STATE_I, opt->gap_penalty, is_solid);
 					if (z.state != STATE_I)
 						update_aux(opt->c.k, a, &z, b1, STATE_D, opt->gap_penalty, is_solid);
 				}
+				*/
 			}
 		} else update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, 0); // not present in the hash table
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
@@ -814,7 +814,6 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	int i;
 	correct1_stat_t st[2];
 
-	if (!opt->uni_dir) assert(opt->gap_penalty == 0);
 	ecs->n_diff = ecs->q_diff = ecs->cov = ecs->n_conflict = 0;
 	if (a == 0) a = _a = fmc_aux_init();
 	kh_clear(kache, a->cache);
@@ -822,18 +821,14 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// forward strand
 	st[0] = fmc_correct1_aux(opt, h, a);
-	if (!opt->uni_dir)  { // in the bi-mode, we correct the original sequence, not the forward-corrected sequence.
-		fmc_seq_cpy_no_del(&a->ec_for, &a->seq);
-		fmc_seq_cpy_no_del(&a->seq, &a->ori);
-	}
+	fmc_seq_cpy_no_del(&a->ec_for, &a->seq);
+	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// reverse strand
 	fmc_seq_revcomp(&a->seq);
 	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
-	if (!opt->uni_dir) {
-		ecs->n_conflict = fmc_cns_ungap(&a->ec_for, &a->seq);
-		fmc_seq_cpy_no_del(&a->seq, &a->ec_for);
-	}
+	ecs->n_conflict = fmc_cns_ungap(&a->ec_for, &a->seq);
+	fmc_seq_cpy_no_del(&a->seq, &a->ec_for);
 	// generate final stats
 	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
 	ecs->penalty = st[0].penalty + st[1].penalty;
@@ -933,7 +928,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "Ouk:o:t:h:g:v:p:e:q:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg);
@@ -941,11 +936,9 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'e') opt.c.err = atof(optarg);
 		else if (c == 't') opt.n_threads = atoi(optarg);
 		else if (c == 'h') fn_kmer = optarg;
-		else if (c == 'g') opt.gap_penalty = atoi(optarg);
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 		else if (c == 'O') opt.show_ori_name = 1;
-		else if (c == 'u') opt.uni_dir = 1;
 	}
 	if (!(opt.c.k&1)) {
 		++opt.c.k;
@@ -959,9 +952,7 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -o INT     min occurrence for a solid k-mer [%d]\n", opt.c.min_occ);
 		fprintf(stderr, "         -d INT     correct singletons out of INT bases [%d]\n\n", opt.c.q1_depth);
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
-		fprintf(stderr, "         -g INT     quality penalty for a gap; 0 to disable gap ec [%d]\n", opt.gap_penalty);
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
-		fprintf(stderr, "         -u         correct reverse strand on the corrected sequence\n");
 		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
@@ -969,10 +960,6 @@ int main_correct(int argc, char *argv[])
 		return 1;
 	}
 	opt.c.suf_len = opt.c.k > 18? opt.c.k - 18 : 1;
-	if (opt.gap_penalty > 0 && opt.uni_dir == 0) {
-		fprintf(stderr, "[W::%s] gap correction only works with option '-u'.\n", __func__);
-		return 1;
-	}
 
 	if (fn_kmer) {
 		FILE *fp;
