@@ -715,7 +715,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			int is_solid = (opt->ecQ > 0 && c->q >= opt->ecQ);
 			if (b1 == c->b) { // read base matching the consensus
 				update_aux(opt->c.k, a, &z, c->b, STATE_M, 0, 0);
-				if (b2 != 4 && q1 < 20 && !is_solid) update_aux(opt->c.k, a, &z, b2, STATE_M, q1 > c->oq? q1 : c->oq, 0);
+				if (b2 != 4 && q1 < 20 && !is_solid && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1 > c->oq? q1 : c->oq, 0);
 			} else if (c->b > 3) { // read base is "N"
 				update_aux(opt->c.k, a, &z, b1, STATE_M, 3, 0);
 				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1, 0);
