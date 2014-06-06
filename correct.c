@@ -864,7 +864,9 @@ typedef struct {
 static void correct_func(void *data, long i, int tid)
 {
 	for_correct_t *f = (for_correct_t*)data;
-	if (fmc_verbose >= 5) fprintf(stderr, ">%s\n", f->name[i]);
+	if (fmc_verbose >= 5)
+		fprintf(stderr, ">%s tid:%d heap:%ld stack:%ld kmercache:%d\n",
+				f->name[i], tid, f->a[tid]->heap.m, f->a[tid]->stack.m, kh_n_buckets(f->a[tid]->cache));
 	fmc_correct1(f->opt, f->h, &f->s[i], &f->q[i], f->a[tid], &f->ecs[i]);
 }
 

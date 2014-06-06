@@ -1,5 +1,5 @@
 CC=			gcc
-CFLAGS=		-g -Wall -O2 #-fno-inline-functions -fno-inline-functions-called-once
+CFLAGS=		-g -Wall -O2 -Wno-unused-function #-fno-inline-functions -fno-inline-functions-called-once
 CPPFLAGS=
 INCLUDES=	
 OBJS=		kthread.o rld0.o sys.o diff.o sub.o unpack.o correct.o dfs.o fet.o \
