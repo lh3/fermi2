@@ -8,7 +8,7 @@ use Getopt::Std;
 
 sub main {
 	my %opts = (t=>4, p=>'fmdef', k=>51, e=>29, l=>61);
-	getopts('t:p:k:f:r:e:l:', \%opts);
+	getopts('t:p:k:f:r:e:l:C', \%opts);
 	die(qq/
 Usage:   fm2-unitig.pl [options] <in.fq>\n
 Options: -p STR     output prefix [$opts{p}]
@@ -16,6 +16,7 @@ Options: -p STR     output prefix [$opts{p}]
          -l INT     min overlap length during graph cleaning [$opts{l}]
     	 -e INT     k-mer length used for error correction [$opts{e}]
          -t INT     number of threads [$opts{t}]
+         -C         don't cut at low-quality bases
 \n/) if (@ARGV == 0);
 
 	$opts{f} ||= gwhich("fermi2");
@@ -34,10 +35,11 @@ Options: -p STR     output prefix [$opts{p}]
 	push(@lines, qq/all:\$(PREFIX).mag.gz/, "");
 
 	push(@lines, qq/\$(PREFIX).raw.fmd:/);
+	my $rb2_opts = defined($opts{C})? "-drq3" : "-drq20 -x31";
 	if ($is_file) {
-		push(@lines, qq/\t\$(EXE_ROPEBWT2) -drq3 $ARGV[0] > \$@ 2> \$@.log/);
+		push(@lines, qq/\t\$(EXE_ROPEBWT2) $rb2_opts $ARGV[0] > \$@ 2> \$@.log/);
 	} else {
-		push(@lines, qq/\t$ARGV[0] | \$(EXE_ROPEBWT2) -drq3 > \$@ 2> \$@.log/);
+		push(@lines, qq/\t$ARGV[0] | \$(EXE_ROPEBWT2) $rb2_opts > \$@ 2> \$@.log/);
 	}
 	push(@lines, "");
 
