@@ -52,7 +52,7 @@ Options: -p STR     output prefix [$opts{p}]
 	push(@lines, "");
 
 	push(@lines, qq/\$(PREFIX).ec.fmd:\$(PREFIX).ec.fq.gz/);
-	push(@lines, qq/\tgzip -dc \$< | \$(EXE_ROPEBWT2) -dNCr > \$@ 2> \$@.log/, "");
+	push(@lines, qq/\t\$(EXE_ROPEBWT2) -dNCr \$< > \$@ 2> \$@.log/, "");
 
 	push(@lines, qq/\$(PREFIX).flt.sub:\$(PREFIX).ec.fmd/);
 	push(@lines, qq/\t\$(EXE_FERMI2) occflt -t \$(N_THREADS) \$< > \$@ 2> \$@.log/, "");
