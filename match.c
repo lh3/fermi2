@@ -38,7 +38,6 @@ int main_match(int argc, char *argv[])
 	}
 
 	fp = gzopen(argv[optind+1], "r");
-	/*
 	if (fp == 0) {
 		fprintf(stderr, "[E::%s] failed to open the sequence file\n", __func__);
 		return 1;
@@ -49,14 +48,12 @@ int main_match(int argc, char *argv[])
 		gzclose(fp);
 		return 1;
 	}
-	*/
 
 	ks = kseq_init(fp);
 	while (kseq_read(ks) >= 0) {
 		int64_t l, u;
-		printf("%s\n", ks->seq.s);
 		printf("SQ\t%s\t%ld\n", ks->name.s, ks->seq.l);
-		//fm_exact(e, ks->seq.s, &l, &u);
+		fm_exact(e, ks->seq.s, &l, &u);
 		if (l < u) printf("EM\t0\t%ld\t%ld\n", ks->seq.l, (long)(u - l));
 		puts("//");
 	}
