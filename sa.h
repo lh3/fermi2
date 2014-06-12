@@ -13,7 +13,7 @@ typedef struct {
 } fmsa_t;
 
 fmsa_t *fm_sa_gen(const rld_t *e, int ssa_shift, int n_threads);
-void fm_sa_dump(const fmsa_t *sa, const char *fn);
+int fm_sa_dump(const fmsa_t *sa, const char *fn);
 fmsa_t *fm_sa_restore(const char *fn);
 void fm_sa_destroy(fmsa_t *sa);
 

@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <stdio.h>
 #include "sa.h"
 #include "kvec.h"
@@ -93,15 +94,57 @@ int64_t fm_sa(const rld_t *e, const fmsa_t *sa, int k, int64_t *si)
 	return x + (sa->ssa[k] >> sa->ms);
 }
 
+int fm_sa_dump(const fmsa_t *sa, const char *fn)
+{
+	uint32_t y;
+	FILE *fp;
+	fp = fn && strcmp(fn, "-")? fopen(fn, "wb") : fdopen(fileno(stdout), "wb");
+	if (fp == 0) return -1;
+	y = sa->ss; fwrite(&y, 4, 1, fp);
+	y = sa->ms; fwrite(&y, 4, 1, fp);
+	fwrite(&sa->m, 8, 1, fp);
+	fwrite(&sa->n_ssa, 8, 1, fp);
+	fwrite(sa->r2i, 8, sa->m, fp);
+	fwrite(sa->ssa, 8, sa->n_ssa, fp);
+	fclose(fp);
+	return 0;
+}
+
+fmsa_t *fm_sa_restore(const char *fn)
+{
+	FILE *fp;
+	uint32_t y;
+	fmsa_t *sa;
+	fp = fn && strcmp(fn, "-")? fopen(fn, "rb") : fdopen(fileno(stdin), "rb");
+	if (fp == 0) return 0;
+	sa = calloc(1, sizeof(fmsa_t));
+	fread(&y, 4, 1, fp); sa->ss = y;
+	fread(&y, 4, 1, fp); sa->ms = y;
+	fread(&sa->m, 8, 1, fp);
+	fread(&sa->n_ssa, 8, 1, fp);
+	sa->r2i = calloc(sa->m, 8);
+	sa->ssa = calloc(sa->n_ssa, 8);
+	if (sa->ssa == 0 || sa->r2i == 0) {
+		free(sa->r2i); free(sa->ssa); free(sa);
+		return 0;
+	}
+	fread(sa->r2i, 8, sa->m, fp);
+	fread(sa->ssa, 8, sa->n_ssa, fp);
+	fclose(fp);
+	return sa;
+}
+
 int main_sa(int argc, char *argv[])
 {
 	int c, n_threads = 1, ssa_shift = 6;
 	fmsa_t *sa;
 	rld_t *e;
+	char *fn = 0;
 
-	while ((c = getopt(argc, argv, "t:s:")) >= 0) {
+	while ((c = getopt(argc, argv, "t:s:o:")) >= 0) {
 		if (c == 't') n_threads = atoi(optarg);
 		else if (c == 's') ssa_shift = atoi(optarg);
+		else if (c == 'o') fn = optarg;
 	}
 	if (argc == optind) {
 		fprintf(stderr, "Usage: fermi2 sa [-t nThreads=%d] [-s stepShift=%d] <in.fmd>\n", n_threads, ssa_shift);
@@ -115,6 +158,7 @@ int main_sa(int argc, char *argv[])
 	sa = fm_sa_gen(e, ssa_shift, n_threads);
 	//{int64_t i;for (i = 0; i < sa->n_ssa; ++i) fprintf(stderr, "S(%lld)=%lld\n", (i<<sa->ss) + e->mcnt[1], sa->ssa[i]>>sa->ms);}
 
+	fm_sa_dump(sa, fn);
 	rld_destroy(e);
 	fm_sa_destroy(sa);
 	return 0;
