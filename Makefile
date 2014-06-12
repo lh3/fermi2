@@ -3,7 +3,7 @@ CFLAGS=		-g -Wall -O2 -Wno-unused-function #-fno-inline-functions -fno-inline-fu
 CPPFLAGS=
 INCLUDES=	
 OBJS=		kthread.o rld0.o sys.o diff.o sub.o unpack.o correct.o dfs.o fet.o \
-			ksw.o seq.o mag.o unitig.o bubble.o
+			ksw.o seq.o mag.o unitig.o bubble.o sa.o
 PROG=		fermi2
 LIBS=		-lm -lz -lpthread
 
