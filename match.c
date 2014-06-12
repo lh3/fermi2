@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <zlib.h>
 #include "rld0.h"
+#include "sa.h"
 #include "kseq.h"
 KSEQ_DECLARE(gzFile)
 
@@ -23,13 +24,17 @@ void fm_exact(const rld_t *e, const char *s, int64_t *_l, int64_t *_u)
 
 int main_match(int argc, char *argv[])
 {
-	int c, use_mmap = 0;
+	int c, use_mmap = 0, max_sa_occ = 10;
 	gzFile fp;
 	rld_t *e;
+	char *fn_sa = 0;
+	fmsa_t *sa = 0;
 	kseq_t *ks;
 
-	while ((c = getopt(argc, argv, "M")) >= 0) {
+	while ((c = getopt(argc, argv, "Ms:m:")) >= 0) {
 		if (c == 'M') use_mmap = 1;
+		else if (c == 's') fn_sa = optarg;
+		else if (c == 'm') max_sa_occ = atoi(optarg);
 	}
 
 	if (optind + 2 > argc) {
@@ -48,17 +53,35 @@ int main_match(int argc, char *argv[])
 		gzclose(fp);
 		return 1;
 	}
+	if (fn_sa) sa = fm_sa_restore(fn_sa);
+	if (fn_sa && sa == 0) {
+		fprintf(stderr, "[E::%s] failed to open the sampled SA file\n", __func__);
+		rld_destroy(e);
+		gzclose(fp);
+		return 1;
+	}
 
 	ks = kseq_init(fp);
 	while (kseq_read(ks) >= 0) {
-		int64_t l, u;
-		printf("SQ\t%s\t%ld\n", ks->name.s, ks->seq.l);
+		int64_t k, l, u;
+		printf("SQ\t%s\t%d\n", ks->name.s, ks->seq.l);
 		fm_exact(e, ks->seq.s, &l, &u);
-		if (l < u) printf("EM\t0\t%ld\t%ld\n", ks->seq.l, (long)(u - l));
+		if (l < u) {
+			printf("EM\t0\t%d\t%ld", ks->seq.l, (long)(u - l));
+			if (sa && u - l <= max_sa_occ) {
+				for (k = l; k < u; ++k) {
+					int64_t idx, i;
+					i = fm_sa(e, sa, k, &idx);
+					printf("\t%ld:%ld", (long)idx, (long)i);
+				}
+			}
+			putchar('\n');
+		}
 		puts("//");
 	}
 	kseq_destroy(ks);
 
+	if (sa) fm_sa_destroy(sa);
 	rld_destroy(e);
 	gzclose(fp);
 	return 0;
