@@ -4,13 +4,50 @@ use strict;
 use warnings;
 use Getopt::Std;
 
-&main;
+die (qq/
+Usage:   fermi2.pl <command> [arguments]\n
+Command: unitig     generate Makefile for unitig assembly
+         mag2fmr    create FMR for multiple MAG unitig assemblies
+\n/) if @ARGV == 0;
 
-sub main {
+my $cmd = shift(@ARGV);
+if ($cmd eq 'unitig') { &unitig(); }
+elsif ($cmd eq 'mag2fmr') { &mag2fmr(); }
+else { die("ERROR: unknown command\n"); }
+
+sub mag2fmr {
+	my %opts = (l=>102);
+	getopts('i:s:r:l:', \%opts);
+	die (qq/fermi2.pl mag2fmr [-i in.fmr] <file1.mag.gz> [...]\n/) if @ARGV == 0;
+
+	$opts{s} ||= gwhich("seqtk");
+	$opts{r} ||= gwhich("ropebwt2");
+	die ("ERROR: failed to find seqtk and ropebwt2") unless (-x $opts{s} && -x $opts{r});
+	my @lines = ();
+	my $prev = defined($opts{i})? $opts{i} : '';
+	for my $fn (@ARGV) {
+		unless (-f $fn) {
+			warn("WARNING: skip non-existing file '$fn'");
+			next;
+		}
+		my $pre = $fn =~ /(\S+)\.mag\.gz$/? $1 : $fn;
+		push(@lines, qq/$pre.fmr:$fn $prev/);
+		my $genfa = qq/$opts{s} seq -nn -aq2 -l60 \$< | $opts{s} cutN -n1 - | $opts{s} seq -L$opts{l} -l0 | gzip -1 > $pre.fa.gz/;
+		my $opt_rb2 = $prev? "-bRLi $prev" : "-bRL";
+		my $addfmr = qq/(gzip -dc $pre.fa.gz; $opts{s} seq -rl0 $pre.fa.gz)|awk 'NR%2==0'|rev|tr "ACGT" "TGCA"|sort -S15G|tr "ACGT" "TGCA"|rev|$opts{r} $opt_rb2 > \$@ 2> \$@.log/;
+		push(@lines, qq/\t$genfa; $addfmr; rm -f $pre.fa.gz/, "");
+		$prev = "$pre.fmr";
+	}
+	unshift(@lines, "all:$prev\n");
+
+	print(join("\n", @lines), "\n");
+}
+
+sub unitig {
 	my %opts = (t=>4, p=>'fmdef', k=>51, e=>29, l=>61);
 	getopts('t:p:k:f:r:e:l:C', \%opts);
-	die(qq/
-Usage:   fm2-unitig.pl [options] <in.fq>\n
+	die (qq/
+Usage:   fermi2.pl unitig [options] <in.fq>\n
 Options: -p STR     output prefix [$opts{p}]
          -k INT     min overlap length during unitig construction [$opts{k}]
          -l INT     min overlap length during graph cleaning [$opts{l}]
@@ -67,6 +104,18 @@ Options: -p STR     output prefix [$opts{p}]
 	push(@lines, qq/\t\$(EXE_FERMI2) simplify -CSo \$(K_CLEAN) \$< 2> \$@.log | gzip -1 > \$@/, "");
 
 	print(join("\n", @lines), "\n");
+}
+
+sub which
+{
+	my $file = shift;
+	my $path = (@_)? shift : $ENV{PATH};
+	return if (!defined($path));
+	foreach my $x (split(":", $path)) {
+		$x =~ s/\/$//;
+		return "$x/$file" if (-x "$x/$file");
+	}
+	return;
 }
 
 sub gwhich {
