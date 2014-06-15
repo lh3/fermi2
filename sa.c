@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
-#include "sa.h"
+#include "fermi2.h"
 #include "kvec.h"
 
 typedef kvec_t(uint64_t) uint64_v;

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <zlib.h>
 #include "rld0.h"
-#include "sa.h"
+#include "fermi2.h"
 #include "kseq.h"
 KSEQ_DECLARE(gzFile)
 
