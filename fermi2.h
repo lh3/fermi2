@@ -4,7 +4,17 @@
 #include <stdint.h>
 #include "rld0.h"
 
-#define FM_VERSION "r103"
+#define FM_VERSION "r104"
+
+#define fmd_comp(a) ((a) >= 1 && (a) <= 4? 5 - (a) : (a))
+#define fmd_set_intv(e, c, ik) ((ik).x[0] = (e)->cnt[(int)(c)], (ik).x[2] = (e)->cnt[(int)(c)+1] - (e)->cnt[(int)(c)], (ik).x[1] = (e)->cnt[fmd_comp(c)], (ik).info = 0)
+
+typedef struct {
+	rldintv_t ik, ok[2][6];
+} fmdsmem_t;
+
+typedef struct { size_t n, m; rldintv_t *a; } rldintv_v;
+typedef struct { size_t n, m; fmdsmem_t *a; } fmdsmem_v;
 
 typedef struct {
 	int ms;

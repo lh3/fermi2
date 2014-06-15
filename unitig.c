@@ -106,7 +106,7 @@ static rldintv_t overlap_intv(const rld_t *e, int len, const uint8_t *seq, int m
 		}
 		ik = ok[c];
 	}
-	kv_reverse(rldintv_t, *p); // reverse the array such that the smallest interval comes first
+	kv_reverse(rldintv_t, *p, 0); // reverse the array such that the smallest interval comes first
 	return ik;
 }
 
