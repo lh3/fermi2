@@ -18,8 +18,11 @@ fermi2:$(OBJS) main.o
 		$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 rld0.o:rld0.h
-correct.o:kseq.h
+correct.o:kseq.h rld0.h
 seq.o:kseq.h
+main.o:fermi2.h
+match.o:fermi2.h rld0.h kseq.h
+sa.o:fermi2.h rld0.h
 
 clean:
 		rm -fr gmon.out *.o ext/*.o a.out $(PROG) *~ *.a *.dSYM session*

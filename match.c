@@ -105,7 +105,12 @@ int main_match(int argc, char *argv[])
 	}
 
 	if (optind + 2 > argc) {
-		fprintf(stderr, "Usage: fermi2 match <index.fmd> <seq.fa>\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage:   fermi2 match [options] <index.fmd> <seq.fa>\n\n");
+		fprintf(stderr, "Options: -p        find SMEMs (req. both strands in one index)\n");
+		fprintf(stderr, "         -s FILE   sampled suffix array [null]\n");
+		fprintf(stderr, "         -m INT    show coordinate if the number of hits is no more than INT [%d]\n", max_sa_occ);
+		fprintf(stderr, "\n");
 		return 1;
 	}
 
@@ -117,6 +122,12 @@ int main_match(int argc, char *argv[])
 	e = rld_restore(argv[optind]);
 	if (e == 0) {
 		fprintf(stderr, "[E::%s] failed to open the index file\n", __func__);
+		gzclose(fp);
+		return 1;
+	}
+	if (partial && (e->mcnt[2] != e->mcnt[5] || e->mcnt[3] != e->mcnt[4])) {
+		fprintf(stderr, "[E::%s] with '-p', the index must include both strands\n", __func__);
+		rld_destroy(e);
 		gzclose(fp);
 		return 1;
 	}
