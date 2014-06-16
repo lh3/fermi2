@@ -66,6 +66,51 @@ function fm_log2tbl(args)
 	}
 }
 
+function fm_id2sam(args)
+{
+	if (args.length == 0) {
+		warn("Usage: k8 fermi2.js id2sam <sample.tbl> <matches.txt>");
+		exit(1);
+	}
+	var buf = new Bytes();
+	var f = new File(args[0]);
+	var sample = [];
+	while (f.readline(buf) >= 0) {
+		var t = buf.toString().split("\t");
+		sample.push([parseInt(t[1]), t[0]]);
+	}
+	f.close();
+	sample.sort(function(a,b) {return a[0]-b[0];})
+	f = args.length > 1? new File(args[1]) : new File();
+	while (f.readline(buf) >= 0) {
+		var t = buf.toString().split("\t");
+		if (t[0] == 'EM') {
+			var ids = [];
+			for (var i = 4; i < t.length; ++i) {
+				var s = t[i].split(":");
+				var id = parseInt(s[0]);
+				if (id >= sample[sample.length-1][0])
+					throw Error("Invalid sequence ID "+id);
+				ids.push(id);
+			}
+			ids.sort(function(a,b){return a-b;});
+			for (var i = 0; i < ids.length; ++i) {
+				var id = ids[i];
+				var start = 0, end = sample.length;
+				while (start < end) {
+					var mid = (start + end) >> 1;
+					if (sample[mid][0] == id) start = end = mid - 1;
+					else if (sample[mid][0] < id) start = mid + 1;
+					else end = mid;
+				}
+				t[i+4] = sample[start][1];
+			}
+			print(t.join("\t"));
+		} else print(buf);
+	}
+	f.close();
+}
+
 /***********************
  *** Main() function ***
  ***********************/
@@ -75,12 +120,14 @@ function main(args)
 	if (args.length == 0) {
 		print("\nUsage:    k8 fermi2.js <command> [arguments]\n");
 		print("Commands: log2tbl   extract sample info from ropebwt2 log");
+		print("          id2sam    relate sequence index to sample info");
 		print("");
 		exit(1);
 	}
 
 	var cmd = args.shift();
 	if (cmd == 'log2tbl') fm_log2tbl(args);
+	else if (cmd == 'id2sam') fm_id2sam(args);
 	else warn("Unrecognized command");
 }
 
