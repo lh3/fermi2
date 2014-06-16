@@ -73,7 +73,7 @@ void fm_sa_destroy(fmsa_t *sa)
 	free(sa->r2i); free(sa->ssa); free(sa);
 }
 
-int64_t fm_sa(const rld_t *e, const fmsa_t *sa, int k, int64_t *si)
+int64_t fm_sa(const rld_t *e, const fmsa_t *sa, int64_t k, int64_t *si)
 {
 	int c, mask = (1<<sa->ss) - 1;
 	int64_t x = 0;

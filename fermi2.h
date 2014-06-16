@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "rld0.h"
 
-#define FM_VERSION "r105"
+#define FM_VERSION "r106"
 
 #define fmd_comp(a) ((a) >= 1 && (a) <= 4? 5 - (a) : (a))
 #define fmd_set_intv(e, c, ik) ((ik).x[0] = (e)->cnt[(int)(c)], (ik).x[2] = (e)->cnt[(int)(c)+1] - (e)->cnt[(int)(c)], (ik).x[1] = (e)->cnt[fmd_comp(c)], (ik).info = 0)
@@ -33,7 +33,7 @@ int fm_sa_dump(const fmsa_t *sa, const char *fn);
 fmsa_t *fm_sa_restore(const char *fn);
 void fm_sa_destroy(fmsa_t *sa);
 
-int64_t fm_sa(const rld_t *e, const fmsa_t *sa, int k, int64_t *si);
+int64_t fm_sa(const rld_t *e, const fmsa_t *sa, int64_t k, int64_t *si);
 
 #ifdef __cplusplus
 }
