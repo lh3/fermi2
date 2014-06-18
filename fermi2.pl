@@ -17,8 +17,8 @@ else { die("ERROR: unknown command\n"); }
 
 sub mag2fmr {
 	my %opts = (l=>102);
-	getopts('i:s:r:l:', \%opts);
-	die (qq/fermi2.pl mag2fmr [-i in.fmr] <file1.mag.gz> [...]\n/) if @ARGV == 0;
+	getopts('ai:s:r:l:', \%opts);
+	die (qq/fermi2.pl mag2fmr [-a] [-i in.fmr] <file1.mag.gz> [...]\n/) if @ARGV == 0;
 
 	$opts{s} ||= gwhich("seqtk");
 	$opts{r} ||= gwhich("ropebwt2");
@@ -32,10 +32,16 @@ sub mag2fmr {
 		}
 		my $pre = $fn =~ /(\S+)\.mag\.gz$/? $1 : $fn;
 		push(@lines, qq/$pre.fmr:$fn $prev/);
-		my $genfa = qq/$opts{s} seq -nn -aq2 -l60 \$< | $opts{s} cutN -n1 - | $opts{s} seq -L$opts{l} -l0 | gzip -1 > $pre.fa.gz/;
 		my $opt_rb2 = $prev? "-bRLi $prev" : "-bRL";
-		my $addfmr = qq/(gzip -dc $pre.fa.gz; $opts{s} seq -rl0 $pre.fa.gz)|awk 'NR%2==0'|rev|tr "ACGT" "TGCA"|sort -S15G|tr "ACGT" "TGCA"|rev|$opts{r} $opt_rb2 > \$@ 2> \$@.log/;
-		push(@lines, qq/\t$genfa; $addfmr; rm -f $pre.fa.gz/, "");
+		my $tmp = qq/awk 'NR%2==0'|rev|tr "ACGT" "TGCA"|sort -S15G|tr "ACGT" "TGCA"|rev|$opts{r} $opt_rb2 > \$@ 2> \$@.log; rm -f $pre.fa.gz/;
+		if (!defined($opts{a})) {
+			my $genfa = qq/$opts{s} seq -nn -aq2 -l60 \$< | $opts{s} cutN -n1 - | $opts{s} seq -L$opts{l} -l0 | gzip -1 > $pre.fa.gz/;
+			my $seqs = qq/(gzip -dc $pre.fa.gz; $opts{s} seq -rl0 $pre.fa.gz)/;
+			push(@lines, qq/\t$genfa; $seqs|$tmp; rm -f $pre.fa.gz/, "");
+		} else {
+			my $seqs = qq/($opts{s} seq -l0 \$<; $opts{s} seq -rl0 \$<)/;
+			push(@lines, qq/\t$seqs|$tmp/, "");
+		}
 		$prev = "$pre.fmr";
 	}
 	unshift(@lines, "all:$prev\n");
@@ -51,7 +57,7 @@ Usage:   fermi2.pl unitig [options] <in.fq>\n
 Options: -p STR     output prefix [$opts{p}]
          -k INT     min overlap length during unitig construction [$opts{k}]
          -l INT     min overlap length during graph cleaning [$opts{l}]
-    	 -e INT     k-mer length used for error correction [$opts{e}]
+         -e INT     k-mer length used for error correction [$opts{e}]
          -t INT     number of threads [$opts{t}]
          -C         don't cut at low-quality bases
 \n/) if (@ARGV == 0);
