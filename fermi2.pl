@@ -16,8 +16,8 @@ elsif ($cmd eq 'mag2fmr') { &mag2fmr(); }
 else { die("ERROR: unknown command\n"); }
 
 sub mag2fmr {
-	my %opts = (l=>102);
-	getopts('ai:s:r:l:', \%opts);
+	my %opts = (l=>102, d=>3);
+	getopts('ai:s:r:l:d:', \%opts);
 	die (qq/fermi2.pl mag2fmr [-a] [-i in.fmr] <file1.mag.gz> [...]\n/) if @ARGV == 0;
 
 	$opts{s} ||= gwhich("seqtk");
@@ -33,9 +33,9 @@ sub mag2fmr {
 		my $pre = $fn =~ /(\S+)\.mag\.gz$/? $1 : $fn;
 		push(@lines, qq/$pre.fmr:$fn $prev/);
 		my $opt_rb2 = $prev? "-bRLi $prev" : "-bRL";
-		my $tmp = qq/awk 'NR%2==0'|rev|tr "ACGT" "TGCA"|sort -S15G|tr "ACGT" "TGCA"|rev|$opts{r} $opt_rb2 > \$@ 2> \$@.log; rm -f $pre.fa.gz/;
+		my $tmp = qq/awk 'NR%2==0'|rev|tr "ACGT" "TGCA"|sort -S15G|tr "ACGT" "TGCA"|rev|$opts{r} $opt_rb2 > \$@ 2> \$@.log/;
 		if (!defined($opts{a})) {
-			my $genfa = qq/$opts{s} seq -nn -aq2 -l60 \$< | $opts{s} cutN -n1 - | $opts{s} seq -L$opts{l} -l0 | gzip -1 > $pre.fa.gz/;
+			my $genfa = qq/$opts{s} seq -nn -aq$opts{d} -l60 \$< | $opts{s} cutN -n1 - | $opts{s} seq -L$opts{l} -l0 | gzip -1 > $pre.fa.gz/;
 			my $seqs = qq/(gzip -dc $pre.fa.gz; $opts{s} seq -rl0 $pre.fa.gz)/;
 			push(@lines, qq/\t$genfa; $seqs|$tmp; rm -f $pre.fa.gz/, "");
 		} else {
