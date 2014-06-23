@@ -38,6 +38,7 @@ typedef struct {
 	int max_heap_size;
 	int max_penalty_diff;
 	int show_ori_name;
+	int max_dist4;
 	int64_t batch_size;
 } fmc_opt_t;
 
@@ -61,6 +62,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
+	opt->max_dist4 = 19;
 }
 
 void kt_for(int n_threads, void (*func)(void*,long,int), void *shared, long n_items);
@@ -519,6 +521,7 @@ typedef struct {
 	int k; // pos on the stack
 	int i; // pos of the next-to-add base on the sequence 
 	uint32_t state:3, last_solid:29;
+	uint64_t ec_pos4;
 } echeap1_t;
 
 #define echeap1_lt(a, b) ((a).penalty > (b).penalty)
@@ -591,7 +594,7 @@ static inline int kmer_lookup(int k, int suf_len, uint64_t kmer[2], fmc_hash_t *
 	return p->missing? -1 : fmc_cell_get_val(p->x, !i);
 }
 
-static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, int state, int penalty, int is_solid_diff)
+static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, int state, int penalty, int is_diff, int is_solid)
 {
 	ecstack1_t *q;
 	echeap1_t *r;
@@ -609,7 +612,8 @@ static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, in
 	r->kmer[0] = p->kmer[0], r->kmer[1] = p->kmer[1];
 	r->state = state;
 	r->i = state == STATE_I? p->i : p->i + 1;
-	r->last_solid = is_solid_diff? r->i : p->last_solid;
+	r->last_solid = is_solid && is_diff? r->i : p->last_solid;
+	r->ec_pos4 = is_diff? p->ec_pos4<<4 | (p->i + 1) : p->ec_pos4;
 	if (fmc_verbose >= 6)fprintf(stderr, "+> [%d] (%d,%c), ipen=%d, state=%c, w=%d\n", r->k, r->i, "ACGTN"[b], penalty, "NMID"[state], q->penalty);
 	if (state != STATE_D) append_to_kmer(k, r->kmer, b);
 	ks_heapup_ec(a->heap.n, a->heap.a);
@@ -675,6 +679,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 	int l, path_end[FMC_MAX_PATHS], n_paths = 0, max_i = 0;
 	correct1_stat_t s;
 
+	assert(a->ori.n < 0x10000);
 	a->heap.n = a->stack.n = 0;
 	s.penalty = s.n_paths = 0;
 	// find the first k-mer
@@ -686,7 +691,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		if (l >= opt->c.k && kmer_lookup(opt->c.k, opt->c.suf_len, z.kmer, h, a->cache) >= 0) break;
 	}
 	if (z.i == a->seq.n) return s;
-	z.last_solid = 0; z.k = -1; // the first k-mer is not on the stack
+	z.last_solid = 0; z.ec_pos4 = 0; z.k = -1; // the first k-mer is not on the stack
 	kv_push(echeap1_t, a->heap, z);
 	// search for the best path
 	while (a->heap.n) {
@@ -714,18 +719,20 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			int q2 = fmc_cell_get_q2(val);
 			int is_solid = (opt->ecQ > 0 && c->q >= opt->ecQ);
 			if (b1 == c->b) { // read base matching the consensus
-				update_aux(opt->c.k, a, &z, c->b, STATE_M, 0, 0);
-				if (b2 != 4 && q1 < 20 && !is_solid && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1 > c->oq? q1 : c->oq, 0);
+				update_aux(opt->c.k, a, &z, c->b, STATE_M, 0, 0, is_solid);
+				if (b2 != 4 && q1 < 20 && !is_solid && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1 > c->oq? q1 : c->oq, 1, 0);
 			} else if (c->b > 3) { // read base is "N"
-				update_aux(opt->c.k, a, &z, b1, STATE_M, 3, 0);
-				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1, 0);
-			} else if (is_solid && (z.i < z.last_solid + opt->c.k || q1>>1 < FMC_Q_1)) {
-				update_aux(opt->c.k, a, &z, c->b, STATE_N, q1, q1 >= opt->ecQ? 1 : 0);
+				update_aux(opt->c.k, a, &z, b1, STATE_M, 3, 0, 0); // "N" is not counted as a diff
+				if (b2 < 4 && !is_excessive) update_aux(opt->c.k, a, &z, b2, STATE_M, q1, 0, 0);
+			} else if (is_solid && (z.i < z.last_solid + opt->c.k || q1>>1 < FMC_Q_1)) { // base is solid and the evidence is weak; reject
+				update_aux(opt->c.k, a, &z, c->b, STATE_N, q1, 0, q1 >= opt->ecQ? 1 : 0); // TODO: should we set is_solid???
+			} else if (z.ec_pos4>>48 && z.i < (z.ec_pos4>>48) + opt->max_dist4) {
+				update_aux(opt->c.k, a, &z, c->b, STATE_N, q1, 0, q1 >= opt->ecQ? 1 : 0); // TODO: should we set is_solid???
 			} else if (b2 >= 4 || b2 == c->b) { // no second base or the second base is the read base; two branches
 				if (!is_excessive || q1 <= c->q)
-					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1,   0);
+					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1,   0, 0);
 				if (!is_excessive || q1 >= c->q)
-					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q, is_solid);
+					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q, 1, is_solid);
 				/*
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
@@ -736,11 +743,11 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				*/
 			} else { // we are looking at three different bases
 				if (!is_excessive || q1 + q2 <= c->q)
-					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1 + q2, 0);
+					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1 + q2, 0, 0);
 				if (!is_excessive || q1 + q2 >= c->q)
-					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q,    is_solid);
+					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q,    1, is_solid);
 				if (!is_excessive)
-					update_aux(opt->c.k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, is_solid);
+					update_aux(opt->c.k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 1, is_solid);
 				/*
 				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
 					if (z.state != STATE_D)
@@ -750,7 +757,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				}
 				*/
 			}
-		} else update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, 0); // not present in the hash table
+		} else update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, 0, 0); // not present in the hash table
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
 	}
 	// backtrack
@@ -930,7 +937,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:4:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg), opt.c.max_ec_depth = opt.c.min_occ - 1;
@@ -941,6 +948,7 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 		else if (c == 'O') opt.show_ori_name = 1;
+		else if (c == '4') opt.max_dist4 = atoi(optarg);
 	}
 	if (!(opt.c.k&1)) {
 		++opt.c.k;
