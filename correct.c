@@ -62,7 +62,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
-	opt->max_dist4 = 19;
+	opt->max_dist4 = 8;
 }
 
 void kt_for(int n_threads, void (*func)(void*,long,int), void *shared, long n_items);
@@ -613,7 +613,7 @@ static inline void update_aux(int k, fmc_aux_t *a, const echeap1_t *p, int b, in
 	r->state = state;
 	r->i = state == STATE_I? p->i : p->i + 1;
 	r->last_solid = is_solid && is_diff? r->i : p->last_solid;
-	r->ec_pos4 = is_diff? p->ec_pos4<<4 | (p->i + 1) : p->ec_pos4;
+	r->ec_pos4 = is_diff? p->ec_pos4<<16 | (p->i + 1) : p->ec_pos4;
 	if (fmc_verbose >= 6)fprintf(stderr, "+> [%d] (%d,%c), ipen=%d, state=%c, w=%d\n", r->k, r->i, "ACGTN"[b], penalty, "NMID"[state], q->penalty);
 	if (state != STATE_D) append_to_kmer(k, r->kmer, b);
 	ks_heapup_ec(a->heap.n, a->heap.a);
@@ -707,7 +707,17 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 			if (n_paths == FMC_MAX_PATHS) break;
 			continue;
 		}
-		if (fmc_verbose >= 6) fprintf(stderr, "<- [%d] (%d,%c%d), size=%ld, penalty=%d, state=%d\n", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->seq.a[z.i].q, a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
+		if (fmc_verbose >= 6) {
+			int i;
+			fprintf(stderr, "<- [%d] (%d,%c%d), size=%ld, penalty=%d, state=%d, ec_pos4=[", z.k, z.i, "ACGTN"[a->seq.a[z.i].b], a->seq.a[z.i].q,
+					a->heap.n, z.penalty, z.k>=0? a->stack.a[z.k].state : -1);
+			for (i = 3; i >= 0; --i)
+				if (z.ec_pos4>>(i*16)&0xffff) {
+					fprintf(stderr, "%d", (int)(z.ec_pos4>>(i*16)&0xffff) - 1);
+					if (i) fputc(',', stderr);
+				}
+			fprintf(stderr, "]\n");
+		}
 		c = &a->seq.a[z.i];
 		max_i = max_i > z.i? max_i : z.i;
 		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 3));
@@ -937,7 +947,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:4:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:w:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg), opt.c.max_ec_depth = opt.c.min_occ - 1;
@@ -948,7 +958,7 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 		else if (c == 'O') opt.show_ori_name = 1;
-		else if (c == '4') opt.max_dist4 = atoi(optarg);
+		else if (c == 'w') opt.max_dist4 = atoi(optarg);
 	}
 	if (!(opt.c.k&1)) {
 		++opt.c.k;
@@ -963,6 +973,7 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -d INT     correct singletons out of INT bases [%d]\n\n", opt.c.q1_depth);
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
+		fprintf(stderr, "         -w INT     no more than 4 corrections per INT-bp window [%d]\n", opt.max_dist4);
 		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
