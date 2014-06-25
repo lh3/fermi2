@@ -39,6 +39,7 @@ typedef struct {
 	int max_penalty_diff;
 	int show_ori_name;
 	int max_dist4;
+	int max_conflicts, drop_conflict;
 	int64_t batch_size;
 } fmc_opt_t;
 
@@ -63,6 +64,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
 	opt->max_dist4 = 8;
+	opt->max_conflicts = 1;
 }
 
 void kt_for(int n_threads, void (*func)(void*,long,int), void *shared, long n_items);
@@ -846,6 +848,10 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	fmc_seq_revcomp(&a->seq);
 	ecs->n_conflict = fmc_cns_ungap(&a->ec_for, &a->seq);
 	fmc_seq_cpy_no_del(&a->seq, &a->ec_for);
+	if (ecs->n_conflict > opt->max_conflicts) {
+		if (_a) fmc_aux_destroy(_a);
+		return;
+	}
 	// generate final stats
 	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
 	ecs->penalty = st[0].penalty + st[1].penalty;
@@ -918,6 +924,8 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q
 		}
 		id = is_same? li : li + 1;
 		la = ni, li = id;
+		if (opt->drop_conflict && s->n_conflict > opt->max_conflicts)
+			continue;
 		if (opt->show_ori_name) printf("@%s", ni);
 		else printf("@%ld", (long)id);
 		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->cov, s->n_diff, s->q_diff, s->n_conflict, s->n_paths[0], s->n_paths[1]);
@@ -947,7 +955,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:w:")) >= 0) {
+	while ((c = getopt(argc, argv, "ODk:o:t:h:v:p:e:q:w:C:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg), opt.c.max_ec_depth = opt.c.min_occ - 1;
@@ -958,6 +966,8 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 		else if (c == 'O') opt.show_ori_name = 1;
+		else if (c == 'D') opt.drop_conflict = 1;
+		else if (c == 'C') opt.max_conflicts = atoi(optarg);
 		else if (c == 'w') opt.max_dist4 = atoi(optarg);
 	}
 	if (!(opt.c.k&1)) {
@@ -974,6 +984,8 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
 		fprintf(stderr, "         -w INT     no more than 4 corrections per INT-bp window [%d]\n", opt.max_dist4);
+		fprintf(stderr, "         -C INT     max forward-reverse conflicts [%d]\n", opt.max_conflicts);
+		fprintf(stderr, "         -D         drop reads with too many conflicts\n");
 		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
