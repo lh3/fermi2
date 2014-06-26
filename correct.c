@@ -15,6 +15,7 @@
 #define FMC_Q_MAX     41
 #define FMC_Q_1       25 // IMPORTANT: FMC_Q_1*2 > FMC_Q_MAX
 #define FMC_Q_NULL    31
+#define FMC_SI_GAP    3
 
 /******************
  *** Parameters ***
@@ -38,7 +39,6 @@ typedef struct {
 	int max_penalty_diff;
 	int show_ori_name;
 	int max_dist4;
-	int max_conflicts, drop_conflict;
 	int64_t batch_size;
 } fmc_opt_t;
 
@@ -62,7 +62,6 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
 	opt->max_dist4 = 8;
-	opt->max_conflicts = 1;
 }
 
 void kt_for(int n_threads, void (*func)(void*,long,int), void *shared, long n_items);
@@ -455,7 +454,7 @@ void fmc_batch_destroy(fmc_batch_t *b)
 typedef struct { // NOTE: unaligned memory
 	uint8_t b:4, state:4;
 	uint8_t ob:4, f:4; // ob/oq: original base/quality
-	uint8_t q, oq, min_diff;
+	uint8_t q, oq, min_diff, cov;
 	int i;
 } ecbase_t;
 
@@ -576,6 +575,7 @@ static inline int kmer_lookup(int k, int suf_len, uint64_t kmer[2], fmc_hash_t *
 
 	x.suf = kmer[i] & ((1<<(suf_len<<1)) - 1);
 	x.x = kmer[i] >> (suf_len<<1) << 28;
+	x.missing = 0; // This line suppresses a gcc warning. It has no effect.
 	kc = kh_put(kache, cache, x, &absent);
 	p = &kh_key(cache, kc);
 	if (absent) {
@@ -670,6 +670,64 @@ static void path_adjustq(int diff, ecseq_t *s1, const ecseq_t *s2)
 		ecbase_t *b = &s1->a[i1];
 		b->min_diff = b->min_diff < diff? b->min_diff : diff;
 	}
+}
+
+static int kmer_cov(const fmc_opt_t *opt, ecseq_t *seq, fmc_hash_t **h, kmercache_t *cache)
+{
+	int i, j, l, v, n_si, in_si;
+	uint64_t kmer[2], kfirst[2];
+	// compute the k-mer coverage for k-mers contained in the read
+	kmer[0] = kmer[1] = kfirst[0] = kfirst[1] = 0;
+	for (i = 0; i < seq->n; ++i) seq->a[i].cov = 0;
+	for (i = l = 0; i < seq->n; ++i) {
+		ecbase_t *p = &seq->a[i];
+		if (p->b > 3) l = 0, kmer[0] = kmer[1] = 0;
+		else ++l, append_to_kmer(opt->c.k, kmer, p->b);
+		if (l >= opt->c.k && (v = kmer_lookup(opt->c.k, opt->c.suf_len, kmer, h, cache)) >= 0)
+			for (j = 0; j < opt->c.k; ++j)
+				++seq->a[i - j].cov;
+		if (i == opt->c.k - 1)
+			kfirst[0] = kmer[0], kfirst[1] = kmer[1];
+	}
+	/* // The following gives better k-mer coverage towards the ends of reads, but it is a bit slow and not that useful
+	// extend to the 3'-end
+	if (l >= opt->c.k && v >= 0) {
+		for (i = 0; i < opt->c.k - 1; ++i) {
+			if (v < 0 || !fmc_cell_has_b1(v) || fmc_cell_has_b2(v)) break;
+			append_to_kmer(opt->c.k, kmer, fmc_cell_get_b1(v));
+			v = kmer_lookup(opt->c.k, opt->c.suf_len, kmer, h, cache);
+			for (j = 0; j < opt->c.k - i - 1; ++j)
+				++seq->a[seq->n - 1 - j].cov;
+		}
+	}
+	// extend to the 5'-end
+	if (seq->a[0].cov > 0) {
+		kmer[0] = kfirst[1], kmer[1] = kfirst[0]; // we are extending on the reverse strand
+		v = kmer_lookup(opt->c.k, opt->c.suf_len, kmer, h, cache);
+		for (i = 0; i < opt->c.k - 1; ++i) {
+			if (v < 0 || !fmc_cell_has_b1(v) || fmc_cell_has_b2(v)) break;
+			append_to_kmer(opt->c.k, kmer, fmc_cell_get_b1(v));
+			v = kmer_lookup(opt->c.k, opt->c.suf_len, kmer, h, cache);
+			for (j = 0; j < opt->c.k - i - 1; ++j)
+				++seq->a[j].cov;
+		}
+	}
+	*/
+	// compute n_si
+	for (i = 0, n_si = 0, in_si = 0; i < seq->n; ++i) {
+		if (seq->a[i].cov >= opt->c.k - FMC_SI_GAP) {
+			if (!in_si) ++n_si, in_si = 1;
+		} else if (in_si) in_si = 0;
+	}
+	if (fmc_verbose >= 6) {
+		fprintf(stderr, "SI ");
+		for (i = 0; i < seq->n; ++i) {
+			if (i) fputc(',', stderr);
+			fprintf(stderr, "%d", seq->a[i].cov);
+		}
+		fputc('\n', stderr);
+	}
+	return n_si;
 }
 
 typedef struct {
@@ -809,7 +867,7 @@ int fmc_cns_ungap(ecseq_t *s1, const ecseq_t *s2)
 
 typedef struct {
 	int n_diff, q_diff, n_paths[2];
-	int penalty, cov, n_conflict;
+	int penalty, n_conflict, n_si;
 } fmc_ecstat_t;
 
 void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
@@ -818,25 +876,21 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	int i;
 	correct1_stat_t st[2];
 
-	ecs->n_diff = ecs->q_diff = ecs->cov = ecs->n_conflict = 0;
+	ecs->n_diff = ecs->q_diff = ecs->n_conflict = ecs->n_si = 0;
 	if (a == 0) a = _a = fmc_aux_init();
 	kh_clear(kache, a->cache);
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
-	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// forward strand
+	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	st[0] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_cpy_no_del(&a->ec_for, &a->seq);
-	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	// reverse strand
+	fmc_seq_cpy_no_del(&a->seq, &a->ori);
 	fmc_seq_revcomp(&a->seq);
 	st[1] = fmc_correct1_aux(opt, h, a);
 	fmc_seq_revcomp(&a->seq);
 	ecs->n_conflict = fmc_cns_ungap(&a->ec_for, &a->seq);
 	fmc_seq_cpy_no_del(&a->seq, &a->ec_for);
-	if (ecs->n_conflict > opt->max_conflicts) {
-		if (_a) fmc_aux_destroy(_a);
-		return;
-	}
 	// generate final stats
 	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
 	ecs->penalty = st[0].penalty + st[1].penalty;
@@ -844,10 +898,11 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
 	} else if (!*q) *q = calloc(a->seq.n + 1, 1);
+	ecs->n_si = kmer_cov(opt, &a->seq, h, a->cache);
+	// write the sequence
 	for (i = 0; i < a->seq.n; ++i) {
 		ecbase_t *b = &a->seq.a[i];
 		int qual;
-		if (b->f) ++ecs->cov;
 		if (b->f || a->ori.a[b->i].b < 4) { // FIXME: this block is not quite right in the presence of gaps.
 			if (b->b != a->ori.a[b->i].b)
 				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
@@ -909,11 +964,9 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q
 		}
 		id = is_same? li : li + 1;
 		la = ni, li = id;
-		if (opt->drop_conflict && s->n_conflict > opt->max_conflicts)
-			continue;
 		if (opt->show_ori_name) printf("@%s", ni);
 		else printf("@%ld", (long)id);
-		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->cov, s->n_diff, s->q_diff, s->n_conflict, s->n_paths[0], s->n_paths[1]);
+		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->n_si, s->n_diff, s->q_diff, s->n_conflict, s->n_paths[0], s->n_paths[1]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
@@ -940,7 +993,7 @@ int main_correct(int argc, char *argv[])
 	liftrlimit();
 
 	fmc_opt_init(&opt);
-	while ((c = getopt(argc, argv, "ODk:o:t:h:v:p:e:q:w:C:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ok:o:t:h:v:p:e:q:w:")) >= 0) {
 		if (c == 'k') opt.c.k = atoi(optarg);
 		else if (c == 'd') opt.c.q1_depth = atoi(optarg);
 		else if (c == 'o') opt.c.min_occ = atoi(optarg), opt.c.max_ec_depth = opt.c.min_occ - 1;
@@ -951,8 +1004,6 @@ int main_correct(int argc, char *argv[])
 		else if (c == 'v') fmc_verbose = atoi(optarg);
 		else if (c == 'q') opt.ecQ = atoi(optarg);
 		else if (c == 'O') opt.show_ori_name = 1;
-		else if (c == 'D') opt.drop_conflict = 1;
-		else if (c == 'C') opt.max_conflicts = atoi(optarg);
 		else if (c == 'w') opt.max_dist4 = atoi(optarg);
 	}
 	if (!(opt.c.k&1)) {
@@ -969,8 +1020,6 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
 		fprintf(stderr, "         -w INT     no more than 4 corrections per INT-bp window [%d]\n", opt.max_dist4);
-		fprintf(stderr, "         -C INT     max forward-reverse conflicts [%d]\n", opt.max_conflicts);
-		fprintf(stderr, "         -D         drop reads with too many conflicts\n");
 		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
