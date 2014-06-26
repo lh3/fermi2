@@ -34,7 +34,6 @@ typedef struct {
 typedef struct {
 	fmc_collect_opt_t c;
 	int n_threads, ecQ, defQ;
-	int gap_penalty;
 	int max_heap_size;
 	int max_penalty_diff;
 	int show_ori_name;
@@ -59,7 +58,6 @@ void fmc_opt_init(fmc_opt_t *opt)
 	opt->n_threads = 1;
 	opt->defQ = 17;
 	opt->ecQ = 20;
-	opt->gap_penalty = 0;
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
@@ -725,7 +723,7 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 		}
 		c = &a->seq.a[z.i];
 		max_i = max_i > z.i? max_i : z.i;
-		is_excessive = (a->heap.n >= max_i * (opt->gap_penalty? 5 : 3));
+		is_excessive = (a->heap.n >= max_i * 3);
 		val = kmer_lookup(opt->c.k, opt->c.suf_len, z.kmer, h, a->cache);
 		if (val >= 0 && fmc_cell_has_b1(val)) { // present in the hash table
 			int b1 = fmc_cell_get_b1(val);
@@ -748,14 +746,6 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1,   0, 0);
 				if (!is_excessive || q1 >= c->q)
 					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q, 1, is_solid);
-				/*
-				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
-					if (z.state != STATE_D)
-						update_aux(opt->c.k, a, &z, b1,STATE_I, opt->gap_penalty, is_solid);
-					if (z.state != STATE_I)
-						update_aux(opt->c.k, a, &z, b1,STATE_D, opt->gap_penalty, is_solid);
-				}
-				*/
 			} else { // we are looking at three different bases
 				if (!is_excessive || q1 + q2 <= c->q)
 					update_aux(opt->c.k, a, &z, c->b, STATE_M, q1 + q2, 0, 0);
@@ -763,14 +753,6 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 					update_aux(opt->c.k, a, &z, b1,   STATE_M, c->q,    1, is_solid);
 				if (!is_excessive)
 					update_aux(opt->c.k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 1, is_solid);
-				/*
-				if (opt->gap_penalty > 0 && z.i < a->seq.n - 1 && q1>>1 >= FMC_Q_1 && !is_excessive) {
-					if (z.state != STATE_D)
-						update_aux(opt->c.k, a, &z, b1, STATE_I, opt->gap_penalty, is_solid);
-					if (z.state != STATE_I)
-						update_aux(opt->c.k, a, &z, b1, STATE_D, opt->gap_penalty, is_solid);
-				}
-				*/
 			}
 		} else update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, 0, 0); // not present in the hash table
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
