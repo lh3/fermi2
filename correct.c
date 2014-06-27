@@ -732,18 +732,18 @@ static int kmer_cov(const fmc_opt_t *opt, ecseq_t *seq, fmc_hash_t **h, kmercach
 }
 
 typedef struct {
-	int penalty, n_paths;
+	int penalty, n_paths, n_failures;
 } correct1_stat_t;
 
 static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fmc_aux_t *a)
 {
 	echeap1_t z;
-	int l, path_end[FMC_MAX_PATHS], n_paths = 0, max_i = 0;
+	int l, path_end[FMC_MAX_PATHS], n_paths = 0, max_i = 0, n_failures = 0;
 	correct1_stat_t s;
 
 	assert(a->ori.n < 0x10000);
 	a->heap.n = a->stack.n = 0;
-	s.penalty = s.n_paths = 0;
+	s.penalty = s.n_paths = s.n_failures = 0;
 	// find the first k-mer
 	memset(&z, 0, sizeof(echeap1_t));
 	for (z.i = 0, l = 0; z.i < a->seq.n;) {
@@ -813,7 +813,11 @@ static correct1_stat_t fmc_correct1_aux(const fmc_opt_t *opt, fmc_hash_t **h, fm
 				if (!is_excessive)
 					update_aux(opt->c.k, a, &z, b2,   STATE_M, c->q > q1? c->q : q1, 1, is_solid);
 			}
-		} else update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, 0, 0); // not present in the hash table
+		} else {
+			update_aux(opt->c.k, a, &z, c->b < 4? c->b : lrand48()&4, STATE_N, FMC_NOHIT_PEN, 0, 0); // not present in the hash table
+			if (n_paths == 0) ++s.n_failures;
+			if (++n_failures > a->seq.n && a->heap.n > 1) a->heap.n = 1, n_failures = 0;
+		}
 		if (fmc_verbose >= 6) fprintf(stderr, "//\n");
 	}
 	// backtrack
@@ -867,8 +871,8 @@ int fmc_cns_ungap(ecseq_t *s1, const ecseq_t *s2)
 }
 
 typedef struct {
-	int n_diff, q_diff, n_paths[2];
-	int penalty, n_conflict, n_si;
+	int n_diff, q_diff, n_paths[2], n_failures[2];
+	int penalty, n_conflict, n_si, to_drop;
 } fmc_ecstat_t;
 
 void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_aux_t *a, fmc_ecstat_t *ecs)
@@ -877,7 +881,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	int i;
 	correct1_stat_t st[2];
 
-	ecs->n_diff = ecs->q_diff = ecs->n_conflict = ecs->n_si = 0;
+	memset(ecs, 0, sizeof(fmc_ecstat_t));
 	if (a == 0) a = _a = fmc_aux_init();
 	kh_clear(kache, a->cache);
 	fmc_seq_conv(*s, *q, opt->defQ, &a->ori);
@@ -893,13 +897,15 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 	ecs->n_conflict = fmc_cns_ungap(&a->ec_for, &a->seq);
 	fmc_seq_cpy_no_del(&a->seq, &a->ec_for);
 	// generate final stats
-	ecs->n_paths[0] = st[0].n_paths; ecs->n_paths[1] = st[1].n_paths;
+	ecs->n_paths[0] = st[0].n_paths; ecs->n_failures[0] = st[0].n_failures;
+	ecs->n_paths[1] = st[1].n_paths; ecs->n_failures[1] = st[1].n_failures;
 	ecs->penalty = st[0].penalty + st[1].penalty;
 	if (a->seq.n > a->ori.n) {
 		*s = realloc(*s, a->seq.n + 1);
 		*q = realloc(*q, a->seq.n + 1);
 	} else if (!*q) *q = calloc(a->seq.n + 1, 1);
 	ecs->n_si = kmer_cov(opt, &a->seq, h, a->cache);
+	ecs->to_drop = (ecs->n_si != 1 || ecs->n_failures[0] > a->seq.n>>1 || ecs->n_failures[1] > a->seq.n>>1);
 	// write the sequence
 	for (i = 0; i < a->seq.n; ++i) {
 		ecbase_t *b = &a->seq.a[i];
@@ -965,10 +971,10 @@ void fmc_correct(const fmc_opt_t *opt, fmc_hash_t **h, int n, char **s, char **q
 		}
 		id = is_same? li : li + 1;
 		la = ni, li = id;
-		if (opt->drop_reads && s->n_si > 1) continue;
+		if (opt->drop_reads && s->to_drop) continue;
 		if (opt->show_ori_name) printf("@%s", ni);
 		else printf("@%ld", (long)id);
-		printf(" ec:Z:%d_%d_%d_%d_%d:%d\n", s->n_si, s->n_diff, s->q_diff, s->n_conflict, s->n_paths[0], s->n_paths[1]);
+		printf(" ec:Z:%d_%d_%d_%d_%d:%d_%d:%d\n", s->n_si, s->n_diff, s->q_diff, s->n_conflict, s->n_paths[0], s->n_paths[1], s->n_failures[0], s->n_failures[1]);
 		puts(f.s[i]); putchar('+'); putchar('\n');
 		puts(f.q[i]);
 	}
@@ -1023,7 +1029,7 @@ int main_correct(int argc, char *argv[])
 		fprintf(stderr, "         -h FILE    get solid k-mer list from FILE [null]\n");
 		fprintf(stderr, "         -q INT     protect Q>INT bases unless they occur once [%d]\n", opt.ecQ);
 		fprintf(stderr, "         -w INT     no more than 4 corrections per INT-bp window [%d]\n", opt.max_dist4);
-		fprintf(stderr, "         -D         drop reads containing >1 solid k-mer islands\n");
+		fprintf(stderr, "         -D         drop error-prone reads\n");
 		fprintf(stderr, "         -O         print the original read name\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Notes: If reads.fq is absent, this command dumps the list of solid k-mers.\n");
