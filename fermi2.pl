@@ -51,7 +51,7 @@ sub mag2fmr {
 
 sub unitig {
 	my %opts = (t=>4, p=>'fmdef', k=>51, e=>29, l=>61);
-	getopts('t:p:k:f:r:e:l:C', \%opts);
+	getopts('t:p:k:f:r:e:l:CK', \%opts);
 	die (qq/
 Usage:   fermi2.pl unitig [options] <in.fq>\n
 Options: -p STR     output prefix [$opts{p}]
@@ -60,6 +60,7 @@ Options: -p STR     output prefix [$opts{p}]
          -e INT     k-mer length used for error correction [$opts{e}]
          -t INT     number of threads [$opts{t}]
          -C         don't cut at low-quality bases
+         -K         don't drop reads during error correction
 \n/) if (@ARGV == 0);
 
 	$opts{f} ||= gwhich("fermi2");
@@ -86,11 +87,12 @@ Options: -p STR     output prefix [$opts{p}]
 	}
 	push(@lines, "");
 
+	my $opt_ec = defined($opts{K})? "" : "-D";
 	push(@lines, qq/\$(PREFIX).ec.fq.gz:\$(PREFIX).raw.fmd/);
 	if ($is_file) {
-		push(@lines, qq/\t\$(EXE_FERMI2) correct -t \$(N_THREADS) -k \$(K_EC) \$< $ARGV[0] 2> \$@.log | gzip -1 > \$@/);
+		push(@lines, qq/\t\$(EXE_FERMI2) correct $opt_ec -t \$(N_THREADS) -k \$(K_EC) \$< $ARGV[0] 2> \$@.log | gzip -1 > \$@/);
 	} else {
-		push(@lines, qq/\t$ARGV[0] | \$(EXE_FERMI2) correct -t \$(N_THREADS) -k \$(K_EC) \$< \/dev\/stdin 2> \$@.log | gzip -1 > \$@/);
+		push(@lines, qq/\t$ARGV[0] | \$(EXE_FERMI2) correct $opt_ec -t \$(N_THREADS) -k \$(K_EC) \$< \/dev\/stdin 2> \$@.log | gzip -1 > \$@/);
 	}
 	push(@lines, "");
 
