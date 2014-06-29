@@ -228,9 +228,7 @@ int fmc_intv2tip(uint8_t *qtab[2], const rldintv_t t[6], int max_ec_depth, int q
 	rest = sum - max; rest2 = sum - max - max2; // the following always stands: rest2 <= rest <= sum and 0 <= max2 <= max <= sum
 	if (sum == 0) {
 		q1 = q2 = FMC_Q_NULL;
-	} else if (rest == 0) {
-		q1 = FMC_Q_1; q2 = FMC_Q_NULL;
-	} else if (rest == 1 && sum >= q1_depth) { // if rest=1, max=sum-1 and max2=1, then rest2=0
+	} else if (rest <= 1 && sum >= q1_depth) { // if rest=1, max=sum-1 and max2=1, then rest2=0
 		q1 = FMC_Q_1;
 		q2 = rest? FMC_Q_1 : FMC_Q_NULL;
 	} else if (max < min_occ || rest > max_ec_depth) {
