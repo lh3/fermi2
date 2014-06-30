@@ -58,7 +58,7 @@ void fmc_opt_init(fmc_opt_t *opt)
 
 	opt->n_threads = 1;
 	opt->defQ = 17;
-	opt->ecQ = 20;
+	opt->ecQ = 30;
 	opt->max_heap_size = 256;
 	opt->max_penalty_diff = 60;
 	opt->batch_size = (1ULL<<28) - (1ULL<<20);
