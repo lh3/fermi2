@@ -903,7 +903,7 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 		*q = realloc(*q, a->seq.n + 1);
 	} else if (!*q) *q = calloc(a->seq.n + 1, 1);
 	ecs->n_si = kmer_cov(opt, &a->seq, h, a->cache);
-	ecs->to_drop = (ecs->n_si != 1 || ecs->n_failures[0] > a->seq.n>>1 || ecs->n_failures[1] > a->seq.n>>1);
+	ecs->to_drop = (ecs->n_si == 0 || ecs->n_failures[0] > a->seq.n || ecs->n_failures[1] > a->seq.n);
 	// write the sequence
 	for (i = 0; i < a->seq.n; ++i) {
 		ecbase_t *b = &a->seq.a[i];
