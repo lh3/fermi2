@@ -24,7 +24,7 @@ typedef struct {
 typedef void (*fmdfs_f)(void *data, int k, char *path, fmint6_t *size, int *cont);
 
 void fm_dfs_core(int n, rld_t **e, int is_half, int max_k, int suf_len, int suf, fmdfs_f func, void *data)
-{
+{ // this routine is similar to fmc_collect1()
 	int i, j, c;
 	fmint6_t *size, *tk, *tl;
 	elem_t *t;
@@ -119,7 +119,7 @@ void fm_dfs(int n, rld_t **e, int max_k, int is_half, fmdfs_f func, void *data, 
  *************/
 
 typedef struct {
-	int max_k, min_occ;
+	int len, min_occ;
 } dfs_count_t;
 
 static void dfs_count(void *data, int k, char *path, fmint6_t *size, int *cont)
@@ -131,7 +131,7 @@ static void dfs_count(void *data, int k, char *path, fmint6_t *size, int *cont)
 		if (size->c[c] < d->min_occ) *cont &= ~(1<<c);
 		sum += size->c[c];
 	}
-	if (k < d->max_k) return;
+	if (k < d->len) return;
 	printf("%s\t%ld\n", path, (long)sum);
 }
 
@@ -140,19 +140,23 @@ int main_count(int argc, char *argv[])
 	int c, n_threads = 1;
 	dfs_count_t d;
 	rld_t *e;
-	d.max_k = 51, d.min_occ = 10;
+	d.len = 51, d.min_occ = 10;
 	while ((c = getopt(argc, argv, "k:o:t:")) >= 0) {
-		if (c == 'k') d.max_k = atoi(optarg);
+		if (c == 'k') d.len = atoi(optarg);
 		else if (c == 'o') d.min_occ = atoi(optarg);
 		else if (c == 't') n_threads = atoi(optarg);
 	}
 	if (optind == argc) {
-		fprintf(stderr, "Usage: fermi2 count [-k maxK=%d] [-o minOcc=%d] [-t nThreads=1] <in.rld>\n", d.max_k, d.min_occ);
+		fprintf(stderr, "Usage: fermi2 count [-k len=%d] [-o minOcc=%d] [-t nThreads=1] <in.rld>\n", d.len, d.min_occ);
 		return 1;
 	}
 	e = rld_restore(argv[optind]);
-	if (!(d.max_k&1)) ++d.max_k;
-	fm_dfs(1, &e, d.max_k, 1, dfs_count, &d, n_threads);
+	if (!(d.len&1)) {
+		++d.len;
+		if (dfs_verbose >= 2)
+			fprintf(stderr, "[W::%s] %d is an even number; change k to %d\n", __func__, d.len-1, d.len);
+	}
+	fm_dfs(1, &e, d.len, 1, dfs_count, &d, n_threads);
 	rld_destroy(e);
 	return 0;
 }

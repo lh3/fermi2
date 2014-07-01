@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "         sub         subset FM-index\n");
 		fprintf(stderr, "         unpack      unpack FM-index\n");
 		fprintf(stderr, "         correct     error correction\n");
-		fprintf(stderr, "         count       k-mer counting (inefficient)\n");
+		fprintf(stderr, "         count       k-mer counting (inefficient for long k-mers)\n");
 		fprintf(stderr, "         interleave  convert 2-file PE fastq to interleaved fastq\n");
 		fprintf(stderr, "         assemble    assemble reads into a unitig graph\n");
 		fprintf(stderr, "         simplify    simplify a unitig graph\n");
