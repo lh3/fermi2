@@ -4,10 +4,11 @@
 #include <stdint.h>
 #include "rld0.h"
 
-#define FM_VERSION "r125"
+#define FM_VERSION "r126"
 
 #define fmd_comp(a) ((a) >= 1 && (a) <= 4? 5 - (a) : (a))
 #define fmd_set_intv(e, c, ik) ((ik).x[0] = (e)->cnt[(int)(c)], (ik).x[2] = (e)->cnt[(int)(c)+1] - (e)->cnt[(int)(c)], (ik).x[1] = (e)->cnt[fmd_comp(c)], (ik).info = 0)
+#define fmd_empty_intv(e, ik) ((ik).x[0] = (ik).x[1] = 0, (ik).x[2] = (e)->mcnt[0], (ik).info = 0)
 
 typedef struct {
 	rldintv_t ik, ok[2][6];
