@@ -250,6 +250,7 @@ int main_count(int argc, char *argv[])
 		else if (c == '2') d.bidir = 1;
 		else if (c == 'b') d.bifur_only = d.bidir = 1;
 	}
+	if (d.bifur_only && d.min_occ < 2) d.min_occ = 2; // in the -b mode, we need to see at least 2 k-mers
 	if (optind == argc) {
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 count [options] <in.fmd>\n\n");
