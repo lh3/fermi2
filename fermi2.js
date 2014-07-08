@@ -111,6 +111,23 @@ function fm_id2sam(args)
 	f.close();
 }
 
+function fm_cnt2hist(args)
+{
+	var buf = new Bytes();
+	var f = args.length? new File(args[0]) : new File();
+	var tbl = [];
+	while (f.readline(buf) >= 0) {
+		var t = buf.toString().split("\t");
+		var x = parseInt(t[1]);
+		if (tbl[x] == null) tbl[x] = 0;
+		++tbl[x];
+	}
+	f.close();
+	buf.destroy();
+	for (var i = 0; i < tbl.length; ++i)
+		if (tbl[i] != null) print(i, tbl[i]);
+}
+
 /***********************
  *** Main() function ***
  ***********************/
@@ -121,6 +138,7 @@ function main(args)
 		print("\nUsage:    k8 fermi2.js <command> [arguments]\n");
 		print("Commands: log2tbl   extract sample info from ropebwt2 log");
 		print("          id2sam    relate sequence index to sample info");
+		print("          cnt2hist  k-mer count histogram");
 		print("");
 		exit(1);
 	}
@@ -128,6 +146,7 @@ function main(args)
 	var cmd = args.shift();
 	if (cmd == 'log2tbl') fm_log2tbl(args);
 	else if (cmd == 'id2sam') fm_id2sam(args);
+	else if (cmd == 'cnt2hist') fm_cnt2hist(args);
 	else warn("Unrecognized command");
 }
 
