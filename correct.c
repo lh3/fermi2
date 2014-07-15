@@ -1090,16 +1090,15 @@ int main_inspectk(int argc, char *argv[])
 		char *aj = argv[j];
 		len = strlen(aj);
 		s.x[0] = s.x[1] = 0; s.x[2] = e->mcnt[0];
+		printf("%d\t", len);
 		for (i = len - 1; i >= 0; --i) {
 			int c = seq_nt6_table[(int)aj[i]];
 			rld_extend(e, &s, t, 1);
-			if (t[c].x[2] == 0) {
-				printf("\tNA");
-				break;
-			}
+			if (t[c].x[2] == 0) break;
 			s = t[c];
 			rld_extend(e, &s, t, 1);
 		}
+		printf("%d\t", len - 1 - i);
 		rld_extend(e, &s, t, 1);
 		for (i = 1; i <= 4; ++i) {
 			if (i != 1) putchar(':');
