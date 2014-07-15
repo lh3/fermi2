@@ -17,6 +17,7 @@ int fmd_smem1_core(const rld_t *e, int min_occ, int len, const uint8_t *q, int x
 
 	fmd_set_intv(e, q[x], ik);
 	ik.info = x + 1;
+	if (ik.x[2] == 0) return x + 1;
 	for (i = x + 1, curr->n = 0; i < len; ++i) { // forward extension
 		c = fmd_comp(q[i]);
 		rld_extend(e, &ik, ok, 0);
@@ -143,7 +144,7 @@ int main_match(int argc, char *argv[])
 	while (kseq_read(ks) >= 0) {
 		printf("SQ\t%s\t%d\n", ks->name.s, ks->seq.l);
 		seq_char2nt6(ks->seq.l, (uint8_t*)ks->seq.s);
-		if (!partial) {
+		if (!partial) { // full-length match
 			int64_t k, l, u;
 			fm_exact(e, ks->seq.s, &l, &u);
 			if (l < u) {
@@ -157,13 +158,13 @@ int main_match(int argc, char *argv[])
 				}
 				putchar('\n');
 			}
-		} else {
+		} else { // SMEM
 			size_t i;
 			int64_t k;
 			fmd_smem(e, (uint8_t*)ks->seq.s, &smem, min_occ, &curr, &prev);
 			for (i = 0; i < smem.n; ++i) {
 				fmdsmem_t *p = &smem.a[i];
-				printf("EM\t%u\t%u\t%ld", (uint32_t)(p->ik.info>>32), (uint32_t)p->ik.info, (long)p->ik.x[2]);
+				printf("EM\t%u\t%u\t%ld\t%ld\t%ld", (uint32_t)(p->ik.info>>32), (uint32_t)p->ik.info, (long)p->ik.x[2], (long)p->ik.x[0], (long)p->ik.x[1]);
 				if (sa && p->ik.x[2] < max_sa_occ) {
 					for (k = 0; k < p->ik.x[2]; ++k) {
 						int64_t idx, j;
