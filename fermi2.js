@@ -128,6 +128,55 @@ function fm_cnt2hist(args)
 		if (tbl[i] != null) print(i, tbl[i]);
 }
 
+function fm_unreg(args)
+{
+	var c, min_len = 61, min_utg_len = 0, gap = 1;
+	while ((c = getopt(args, 'g:l:u:')) != null) {
+		if (c == 'g') gap = parseInt(getopt.arg);
+		else if (c == 'l') min_len = parseInt(getopt.arg);
+		else if (c == 'u') min_utg_len = parseInt(getopt.arg);
+	}
+
+	var f = args.length == getopt.ind? new File() : new File(args[getopt.ind]);
+	var b = new Bytes();
+
+	function process(name, len, a)
+	{
+		var s = 0, e = -1, c = [];
+		if (len < min_utg_len) return;
+		for (var i = 0; i < a.length; ++i) {
+			if (a[i][0] > e) {
+				if (e > 0) c.push([s, e]);
+				s = a[i][0]; e = a[i][1];
+			} else if (a[i][1] > e) e = a[i][1];
+		}
+		if (e > 0) c.push([s, e]);
+		s = 0;
+		for (var i = 0; i < c.length; ++i) {
+			if (c[i][0] > s && s >= min_len) print(name, s, c[i][0]);
+			s = c[i][1];
+		}
+		if (len > s && len - s >= min_len) print(name, s, len);
+		c = [];
+	}
+
+	var name, len, a;
+	while (f.readline(b) >= 0) {
+		var m, line = b.toString();
+		if ((m = /^SQ\s(\S+)\s(\d+)/.exec(line)) != null) {
+			name = m[1]; len = parseInt(m[2]); a = [];
+		} else if ((m = /^EM\s(\d+)\s(\d+)/.exec(line)) != null) {
+			var st = parseInt(m[1]), en = parseInt(m[2]);
+			if (en - st >= min_len) a.push([st + gap, en - gap]);
+		} else if (/^\/\//.test(line)) {
+			process(name, len, a);
+	}
+	}
+
+	b.destroy();
+	f.close();
+}
+
 /***********************
  *** Main() function ***
  ***********************/
@@ -139,6 +188,7 @@ function main(args)
 		print("Commands: log2tbl   extract sample info from ropebwt2 log");
 		print("          id2sam    relate sequence index to sample info");
 		print("          cnt2hist  k-mer count histogram");
+		print("          unreg     identify unaligned regions from match output");
 		print("");
 		exit(1);
 	}
@@ -147,6 +197,7 @@ function main(args)
 	if (cmd == 'log2tbl') fm_log2tbl(args);
 	else if (cmd == 'id2sam') fm_id2sam(args);
 	else if (cmd == 'cnt2hist') fm_cnt2hist(args);
+	else if (cmd == 'unreg') fm_unreg(args);
 	else warn("Unrecognized command");
 }
 
