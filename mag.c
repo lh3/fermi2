@@ -680,7 +680,7 @@ int main_simplify(int argc, char *argv[])
 	opt = mag_init_opt();
 	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:n:w:r:S")) >= 0) {
 		switch (c) {
-		case 'F': opt->flag |= MAG_F_NO_AMEND; break;
+		case 'F': opt->flag |= MAG_F_NO_AMEND | MAG_F_READ_ORI; break;
 		case 'C': opt->flag |= MAG_F_CLEAN; break;
 		case 'A': opt->flag |= MAG_F_AGGRESSIVE; break;
 		case 'O': opt->flag |= MAG_F_READ_ORI; break;
@@ -701,6 +701,8 @@ int main_simplify(int argc, char *argv[])
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 simplify [options] <in.mag>\n\n");
 		fprintf(stderr, "Options: -N INT      read maximum INT neighbors per node [%d]\n", opt->max_arc);
+		fprintf(stderr, "         -O          read the graph without modifications\n");
+		fprintf(stderr, "         -F          don't attempt to fix erroneous edges (force -O)\n");
 		fprintf(stderr, "         -d FLOAT    drop a neighbor if relative overlap ratio below FLOAT [%.2f]\n\n", opt->min_dratio0); 
 		fprintf(stderr, "         -C          clean the graph\n");
 		fprintf(stderr, "         -l INT      minimum tip length [%d]\n", opt->min_elen);
