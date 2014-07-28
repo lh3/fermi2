@@ -49,7 +49,7 @@ index ~300 samples from [Simons Genome Diversity Project][sgdp] (SGDP).
         bwa index ref.fa; samtools faidx ref.fa
         bwa mem -B9 -O16 -L10 -t8 ref.fa foo.mag.gz | gzip -1 > foo.sam.gz
 		samtools view -uS foo.sam.gz | samtools sort - foo
-		samtools mpileup -Bf ref.fa foo.bam | k8 vcf8.js plp2var | k8 vcf8.js var2vcf > foo.vcf
+		samtools mpileup -Bf ref.fa foo.bam | k8 vcf8.js plp2var | k8 vcf8.js var2vcf -q > foo.vcf
 
 [sgdp]: http://www.simonsfoundation.org/life-sciences/simons-genome-diversity-project/
 [seqtk]: https://github.com/lh3/seqtk
