@@ -5,7 +5,7 @@ index ~300 samples from [Simons Genome Diversity Project][sgdp] (SGDP).
 
 1. Download and unpack precompiled binaries:
 
-        wget -O- http://sf.net/projects/lh3/files/sgdp/sgdp-1.0_x64-linux.tar.bz2/download \
+        wget -O- http://sf.net/projects/biobin/files/unclassified/sgdp-1.1_x64-linux.tar.bz2/download \
             | bzip2 -dc | tar xvf -
 
    This will create a directory `sgdp-1.0_x64-linux`. For simplicity, we assume
@@ -43,6 +43,13 @@ index ~300 samples from [Simons Genome Diversity Project][sgdp] (SGDP).
    minutes to add one sample. The last `.fmr` file is the final FM-index you
    should keep. If you do not have an existing index, simply drop the `-i
    bar.fmr` option. `all.tbl` keeps the sample information.
+
+5. Variant calling:
+
+        bwa index ref.fa; samtools faidx ref.fa
+        bwa mem -B9 -O16 -L10 -t8 ref.fa foo.mag.gz | gzip -1 > foo.sam.gz
+		samtools view -uS foo.sam.gz | samtools sort - foo
+		samtools mpileup -Bf ref.fa foo.bam | k8 vcf8.js plp2var | k8 vcf8.js var2vcf > foo.vcf
 
 [sgdp]: http://www.simonsfoundation.org/life-sciences/simons-genome-diversity-project/
 [seqtk]: https://github.com/lh3/seqtk
