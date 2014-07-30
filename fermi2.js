@@ -183,13 +183,27 @@ function fm_unreg(args)
 
 function b8_plp2var(args)
 {
-	var file = args.length? new File(args[0]) : new File();
-	var buf = new Bytes();
+	var c, is_fq = false;
+	while ((c = getopt(args, 'f')) != null)
+		if (c == 'f') is_fq = true;
 
+	var file = args.length > getopt.ind? new File(args[getopt.ind]) : new File();
+	var buf = new Bytes();
+	var h = { "AC":"M", "CA":"M", "AG":"R", "GA":"R", "AT":"W", "TA":"W", "CG":"S", "GC":"S", "CT":"Y", "TC":"Y", "GT":"K", "TG":"K",
+			  "AA":"A", "CC":"C", "GG":"G", "TT":"T" };
+
+	var last_chr = null, last_pos = -1, n_all = 0, sum_all = 0;
+	var seq = new Bytes(), qual = new Bytes();
 	while (file.readline(buf) >= 0) {
 		var t = buf.toString().split("\t");
-		if (!/[ACGTacgt]/.test(t[4])) continue;
+		if (is_fq && last_chr != t[0]) {
+			if (last_chr != null)
+				print("@"+last_chr+"\n"+seq.toString()+"\n+\n"+qual.toString()); 
+			last_chr = t[0]; last_pos = -1;
+		}
+		if (!is_fq && !/[ACGTacgt]/.test(t[4])) continue;
 		t[2] = t[2].toUpperCase();
+
 		var i = 0, j = 0;
 		var alleles = {}, cnt = [], sum = 0;
 		while (i < t[4].length && j < t[5].length) {
@@ -223,11 +237,34 @@ function b8_plp2var(args)
 			sum += q;
 		}
 
-		var out = [t[0], t[1], t[2], sum, cnt.length];
-		for (var i = 0; i < cnt.length; ++i)
-			for (var j = 0; j < 5; ++j)
-				out.push(cnt[i][j]);
-		print(out.join("\t"));
+		sum_all += sum; ++n_all;
+		if (!is_fq) {
+			var out = [t[0], t[1], t[2], sum, cnt.length];
+			for (var i = 0; i < cnt.length; ++i)
+				for (var j = 0; j < 5; ++j)
+					out.push(cnt[i][j]);
+			print(out.join("\t"));
+		} else {
+			var q = sum <= 93? sum + 33 : 126;
+			var pos = parseInt(t[1]) - 1;
+			if (last_pos + 1 != pos) {
+				for (var i = last_pos + 1; i < pos; ++i) {
+					seq.set('N', i); qual.set(33, i);
+				}
+			}
+			if (cnt.length == 1) { // homozygous
+				seq.set(cnt[0][0], pos);
+			} else if (cnt.length == 2) {
+				var a = [cnt[0][0].charAt(0), cnt[1][0].charAt(0)];
+				seq.set(h[a[0]+a[1]], pos);
+			} else seq.set('N', pos);
+			qual.set(q, pos);
+			last_pos = pos;
+		}
+	}
+	if (is_fq && last_chr != null) {
+		print("@"+last_chr+"\n"+seq.toString()+"\n+\n"+qual.toString());
+		warn((sum_all / n_all).toFixed(2));
 	}
 
 	buf.destroy();
