@@ -177,171 +177,6 @@ function fm_unreg(args)
 	f.close();
 }
 
-/*********************************************
- *** Extract variant sites from raw pileup ***
- *********************************************/
-
-function b8_plp2var(args)
-{
-	var c, is_fq = false;
-	while ((c = getopt(args, 'f')) != null)
-		if (c == 'f') is_fq = true;
-
-	var file = args.length > getopt.ind? new File(args[getopt.ind]) : new File();
-	var buf = new Bytes();
-	var h = { "AC":"M", "CA":"M", "AG":"R", "GA":"R", "AT":"W", "TA":"W", "CG":"S", "GC":"S", "CT":"Y", "TC":"Y", "GT":"K", "TG":"K",
-			  "AA":"A", "CC":"C", "GG":"G", "TT":"T" };
-
-	var last_chr = null, last_pos = -1, n_all = 0, sum_all = 0;
-	var seq = new Bytes(), qual = new Bytes();
-	while (file.readline(buf) >= 0) {
-		var t = buf.toString().split("\t");
-		if (is_fq && last_chr != t[0]) {
-			if (last_chr != null)
-				print("@"+last_chr+"\n"+seq.toString()+"\n+\n"+qual.toString()); 
-			last_chr = t[0]; last_pos = -1;
-			seq.length = qual.length = 0;
-		}
-		if (!is_fq && !/[ACGTacgt]/.test(t[4])) continue;
-		t[2] = t[2].toUpperCase();
-
-		var i = 0, j = 0;
-		var alleles = {}, cnt = [], sum = 0;
-		while (i < t[4].length && j < t[5].length) {
-			var b = t[4].charAt(i);
-			if (b == '$') { ++i; continue; }
-			if (b == '^') { i += 2; continue; }
-			if (b == '*') { ++i, ++j; continue; }
-
-			// determine the allele sequence
-			var a, q, forward;
-			var match = /[.,A-Za-z]([+-](\d+)[A-Za-z])?/.exec(t[4].substr(i));
-			if (b == '.') b = t[2].toUpperCase();
-			else if (b == ',') b = t[2].toLowerCase();
-			forward = (b.charCodeAt(0) < 97);
-			q = t[5].charCodeAt(j) - 33;
-			var l_int = 0, l = 0;
-			if (match[1] != null) {
-				l_int = match[2].length + 1; // including +/-
-				l = parseInt(match[2]);
-				a = (b + t[4].substr(i + 1, l_int +l)).toUpperCase();
-			} else a = b.toUpperCase();
-			i += 1 + l_int + l;
-			++j;
-
-			// count
-			var ci;
-			if (alleles[a] == null) alleles[a] = cnt.length, cnt.push([a, 0, 0, 0, 0]);
-			ci = alleles[a];
-			++cnt[ci][forward? 1 : 2];
-			cnt[ci][forward? 3 : 4] += q;
-			sum += q;
-		}
-
-		sum_all += sum; ++n_all;
-		if (!is_fq) {
-			var out = [t[0], t[1], t[2], sum, cnt.length];
-			for (var i = 0; i < cnt.length; ++i)
-				for (var j = 0; j < 5; ++j)
-					out.push(cnt[i][j]);
-			print(out.join("\t"));
-		} else {
-			var q = sum <= 93? sum + 33 : 126;
-			var pos = parseInt(t[1]) - 1;
-			if (last_pos + 1 != pos) {
-				for (var i = last_pos + 1; i < pos; ++i) {
-					seq.set('N', i); qual.set(33, i);
-				}
-			}
-			if (cnt.length == 1) { // homozygous
-				seq.set(cnt[0][0], pos);
-			} else if (cnt.length == 2) {
-				var a = [cnt[0][0].charAt(0), cnt[1][0].charAt(0)];
-				seq.set(h[a[0]+a[1]], pos);
-			} else seq.set('N', pos);
-			qual.set(q, pos);
-			last_pos = pos;
-		}
-	}
-	if (is_fq && last_chr != null) {
-		print("@"+last_chr+"\n"+seq.toString()+"\n+\n"+qual.toString());
-		warn((sum_all / n_all).toFixed(2));
-	}
-
-	buf.destroy();
-	file.close();
-}
-
-/*************************************
- *** Convert plp2var output to VCF ***
- *************************************/
-
-function b8_var2vcf(args)
-{
-	var c, qdp = false;
-	while ((c = getopt(args, 'q')) != null)
-		if (c == 'q') qdp = true;
-	var file = args.length > getopt.ind? new File(args[getopt.ind]) : new File();
-	var buf = new Bytes();
-
-	while (file.readline(buf) >= 0) {
-		var max = 0, match, max_del = '';
-		var t = buf.toString().split("\t");
-		t[3] = parseInt(t[3]); t[4] = parseInt(t[4]);
-		for (var i = 0; i < t[4]; ++i) {
-			var match = /^[A-Z]-(\d+)([A-Z]+)/.exec(t[5*(i+1)]);
-			if (match != null && max < parseInt(match[1]))
-				max = parseInt(match[1]), max_del = match[2];
-		}
-		var alt = [], dp4 = [0, 0, 0, 0], q = [], qs4 = [0, 0, 0, 0];
-		for (var i = 0; i < t[4]; ++i) {
-			var a = t[5*(i+1)], match;
-			if (a == t[2]) {
-				dp4[0] += parseInt(t[5*(i+1) + 1]);
-				dp4[1] += parseInt(t[5*(i+1) + 2]);
-				qs4[0] += parseInt(t[5*(i+1) + 3]);
-				qs4[1] += parseInt(t[5*(i+1) + 4]);
-				continue; // identical to the reference
-			} else {
-				dp4[2] += parseInt(t[5*(i+1) + 1]);
-				dp4[3] += parseInt(t[5*(i+1) + 2]);
-				qs4[2] += parseInt(t[5*(i+1) + 3]);
-				qs4[3] += parseInt(t[5*(i+1) + 4]);
-			}
-			if ((match = /^[A-Z]\+(\d+)([A-Z]+)/.exec(a)) != null) { // insertion
-				alt.push(t[2] + match[2] + max_del);
-			} else if ((match = /^[A-Z]-(\d+)([A-Z]+)/.exec(a)) != null) { // deletion
-				alt.push(t[2] + max_del.substr(parseInt(match[1])));
-			} else { // SNP
-				alt.push(a);
-			}
-			q.push(qs4[2] + qs4[3]);
-		}
-		if (alt.length == 0) continue; // not a variant
-		var alt_sum = 0;
-		for (var i = 0; i < q.length; ++i) alt_sum += q[i];
-		q.unshift(qs4[0] + qs4[1]);
-		var gt;
-		if (alt.length == 1 && qs4[0] + qs4[1] == 0) {
-			gt = "1/1";
-		} else {
-			var max = -1, max2 = -1, max_i = -1, max2_i = -1;
-			for (var i = 0; i < q.length; ++i) {
-				if (max < q[i]) max2 = max, max2_i = max_i, max = q[i], max_i = i;
-				else if (max2 < q[i]) max2 = q[i], max2_i = i;
-			}
-			if (max_i > max2_i) max_i ^= max2_i, max2_i ^= max_i, max_i ^= max2_i;
-			gt = max_i + "/" + max2_i;
-		}
-		var info = qdp? 'DP4='+qs4.join(",")+';RD4='+dp4.join(",") : 'DP4='+dp4.join(",")+';QS4='+qs4.join(",");
-		var out = [t[0], t[1], '.', t[2] + max_del, alt.join(","), alt_sum, '.', info, 'GT', gt];
-		print(out.join("\t"));
-	}
-
-	buf.destroy();
-	file.close();
-}
-
 /***********************
  *** Main() function ***
  ***********************/
@@ -354,8 +189,6 @@ function main(args)
 		print("          id2sam    relate sequence index to sample info");
 		print("          cnt2hist  k-mer count histogram");
 		print("          unreg     identify unaligned regions from match output");
-		print("          plp2var   extract variant sites from raw pileup");
-		print("          var2vcf   convert plp2var output to VCF");
 		print("");
 		exit(1);
 	}
@@ -365,8 +198,6 @@ function main(args)
 	else if (cmd == 'id2sam') fm_id2sam(args);
 	else if (cmd == 'cnt2hist') fm_cnt2hist(args);
 	else if (cmd == 'unreg') fm_unreg(args);
-	else if (cmd == 'plp2var') b8_plp2var(args);
-	else if (cmd == 'var2vcf') b8_var2vcf(args);
 	else warn("Unrecognized command");
 }
 
