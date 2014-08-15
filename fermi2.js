@@ -200,6 +200,7 @@ function b8_plp2var(args)
 			if (last_chr != null)
 				print("@"+last_chr+"\n"+seq.toString()+"\n+\n"+qual.toString()); 
 			last_chr = t[0]; last_pos = -1;
+			seq.length = qual.length = 0;
 		}
 		if (!is_fq && !/[ACGTacgt]/.test(t[4])) continue;
 		t[2] = t[2].toUpperCase();

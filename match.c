@@ -5,6 +5,7 @@
 #include <zlib.h>
 #include "fermi2.h"
 #include "kvec.h"
+#include "kstring.h"
 #include "kseq.h"
 KSEQ_DECLARE(gzFile)
 
@@ -85,32 +86,103 @@ void fm_exact(const rld_t *e, const char *s, int64_t *_l, int64_t *_u)
 }
 
 extern void seq_char2nt6(int l, unsigned char *s);
+extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
+
+typedef struct {
+	rldintv_v curr, prev;
+	fmdsmem_v smem;
+	kstring_t str;
+} thrmem_t;
+
+typedef struct {
+	const rld_t *e;
+	const fmsa_t *sa;
+	int max_sa_occ, partial, min_occ;
+
+	int n_threads;
+	thrmem_t *mem;
+
+	int n_seqs, m_seqs;
+	char **name, **seq, **qual, **out;
+} global_t;
+
+static void worker(void *data, long jid, int tid)
+{
+	global_t *g = (global_t*)data;
+	thrmem_t *m = &g->mem[tid];
+	char *seq = g->seq[jid];
+	int l_seq;
+
+	l_seq = strlen(seq);
+	seq_char2nt6(l_seq, (uint8_t*)seq);
+	m->str.l = 0;
+	kputsn("SQ\t", 3, &m->str); kputs(g->name[jid], &m->str); kputc('\t', &m->str); kputw(l_seq, &m->str); kputc('\n', &m->str);
+	if (!g->partial) { // full-length match
+		int64_t k, l, u;
+		fm_exact(g->e, seq, &l, &u);
+		if (l < u) {
+			kputsn("EM\t0\t", 5, &m->str); kputl(l_seq, &m->str); kputc('\t', &m->str); kputl(u - l, &m->str);
+			if (g->sa && u - l <= g->max_sa_occ) {
+				for (k = l; k < u; ++k) {
+					int64_t idx, i;
+					i = fm_sa(g->e, g->sa, k, &idx);
+					kputc('\t', &m->str); kputl(idx, &m->str); kputc(':', &m->str); kputl(i, &m->str);
+				}
+			}
+			kputc('\n', &m->str);
+		}
+	} else { // SMEM
+		size_t i;
+		int64_t k;
+		fmd_smem(g->e, (uint8_t*)seq, &m->smem, g->min_occ, &m->curr, &m->prev);
+		for (i = 0; i < m->smem.n; ++i) {
+			fmdsmem_t *p = &m->smem.a[i];
+			kputsn("EM\t", 3, &m->str); kputw(p->ik.info>>32, &m->str); kputc('\t', &m->str); kputw((uint32_t)p->ik.info, &m->str);
+			kputc('\t', &m->str); kputl(p->ik.x[2], &m->str);
+			if (g->sa && p->ik.x[2] < g->max_sa_occ) {
+				for (k = 0; k < p->ik.x[2]; ++k) {
+					int64_t idx, j;
+					j = fm_sa(g->e, g->sa, p->ik.x[0] + k, &idx);
+					kputc('\t', &m->str); kputl(idx, &m->str); kputc(':', &m->str); kputl(j, &m->str);
+				}
+			}
+			kputc('\n', &m->str);
+		}
+	}
+	kputsn("//", 2, &m->str);
+	free(g->qual[jid]); free(g->seq[jid]); free(g->name[jid]);
+	g->out[jid] = strdup(m->str.s);
+}
 
 int main_match(int argc, char *argv[])
 {
-	int c, use_mmap = 0, max_sa_occ = 10, partial = 0, min_occ = 1;
+	int i, c, use_mmap = 0, batch_size = 10000000, l_seqs;
 	gzFile fp;
-	rld_t *e;
 	char *fn_sa = 0;
-	fmsa_t *sa = 0;
 	kseq_t *ks;
-	rldintv_v curr = {0,0,0}, prev = {0,0,0};
-	fmdsmem_v smem = {0,0,0};
+	global_t g;
 
-	while ((c = getopt(argc, argv, "Mps:m:O:")) >= 0) {
+	memset(&g, 0, sizeof(global_t));
+	g.max_sa_occ = 10, g.min_occ = 1, g.n_threads = 1;
+	while ((c = getopt(argc, argv, "Mps:m:O:b:t:")) >= 0) {
 		if (c == 'M') use_mmap = 1;
 		else if (c == 's') fn_sa = optarg;
-		else if (c == 'm') max_sa_occ = atoi(optarg);
-		else if (c == 'p') partial = 1;
-		else if (c == 'O') min_occ = atoi(optarg);
+		else if (c == 'm') g.max_sa_occ = atoi(optarg);
+		else if (c == 'p') g.partial = 1;
+		else if (c == 'O') g.min_occ = atoi(optarg);
+		else if (c == 't') g.n_threads = atoi(optarg);
+		else if (c == 'b') batch_size = atoi(optarg);
 	}
 
 	if (optind + 2 > argc) {
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 match [options] <index.fmd> <seq.fa>\n\n");
 		fprintf(stderr, "Options: -p        find SMEMs (req. both strands in one index)\n");
+		fprintf(stderr, "         -t INT    number of threads [%d]\n", g.n_threads);
+		fprintf(stderr, "         -b INT    batch size [%d]\n", batch_size);
 		fprintf(stderr, "         -s FILE   sampled suffix array [null]\n");
-		fprintf(stderr, "         -m INT    show coordinate if the number of hits is no more than INT [%d]\n", max_sa_occ);
+		fprintf(stderr, "         -m INT    show coordinate if the number of hits is no more than INT [%d]\n", g.max_sa_occ);
+		fprintf(stderr, "         -s INT    min occurrences [%d]\n", g.min_occ);
 		fprintf(stderr, "\n");
 		return 1;
 	}
@@ -120,68 +192,68 @@ int main_match(int argc, char *argv[])
 		fprintf(stderr, "[E::%s] failed to open the sequence file\n", __func__);
 		return 1;
 	}
-	e = rld_restore(argv[optind]);
-	if (e == 0) {
+	g.e = rld_restore(argv[optind]);
+	if (g.e == 0) {
 		fprintf(stderr, "[E::%s] failed to open the index file\n", __func__);
 		gzclose(fp);
 		return 1;
 	}
-	if (partial && (e->mcnt[2] != e->mcnt[5] || e->mcnt[3] != e->mcnt[4])) {
+	if (g.partial && (g.e->mcnt[2] != g.e->mcnt[5] || g.e->mcnt[3] != g.e->mcnt[4])) {
 		fprintf(stderr, "[E::%s] with '-p', the index must include both strands\n", __func__);
-		rld_destroy(e);
+		rld_destroy((rld_t*)g.e);
 		gzclose(fp);
 		return 1;
 	}
-	if (fn_sa) sa = fm_sa_restore(fn_sa);
-	if (fn_sa && sa == 0) {
+	if (fn_sa) g.sa = fm_sa_restore(fn_sa);
+	if (fn_sa && g.sa == 0) {
 		fprintf(stderr, "[E::%s] failed to open the sampled SA file\n", __func__);
-		rld_destroy(e);
+		rld_destroy((rld_t*)g.e);
 		gzclose(fp);
 		return 1;
 	}
 
+	g.mem = calloc(g.n_threads, sizeof(thrmem_t));
+
+	batch_size *= g.n_threads;
 	ks = kseq_init(fp);
+	l_seqs = 0;
 	while (kseq_read(ks) >= 0) {
-		printf("SQ\t%s\t%d\n", ks->name.s, ks->seq.l);
-		seq_char2nt6(ks->seq.l, (uint8_t*)ks->seq.s);
-		if (!partial) { // full-length match
-			int64_t k, l, u;
-			fm_exact(e, ks->seq.s, &l, &u);
-			if (l < u) {
-				printf("EM\t0\t%d\t%ld", ks->seq.l, (long)(u - l));
-				if (sa && u - l <= max_sa_occ) {
-					for (k = l; k < u; ++k) {
-						int64_t idx, i;
-						i = fm_sa(e, sa, k, &idx);
-						printf("\t%ld:%ld", (long)idx, (long)i);
-					}
-				}
-				putchar('\n');
-			}
-		} else { // SMEM
-			size_t i;
-			int64_t k;
-			fmd_smem(e, (uint8_t*)ks->seq.s, &smem, min_occ, &curr, &prev);
-			for (i = 0; i < smem.n; ++i) {
-				fmdsmem_t *p = &smem.a[i];
-				printf("EM\t%u\t%u\t%ld\t%ld\t%ld", (uint32_t)(p->ik.info>>32), (uint32_t)p->ik.info, (long)p->ik.x[2], (long)p->ik.x[0], (long)p->ik.x[1]);
-				if (sa && p->ik.x[2] < max_sa_occ) {
-					for (k = 0; k < p->ik.x[2]; ++k) {
-						int64_t idx, j;
-						j = fm_sa(e, sa, p->ik.x[0] + k, &idx);
-						printf("\t%ld:%ld", (long)idx, (long)j);
-					}
-				}
-				putchar('\n');
-			}
+		if (g.n_seqs == g.m_seqs) {
+			g.m_seqs = g.m_seqs? g.m_seqs<<1 : 4;
+			g.name = realloc(g.name, g.m_seqs * sizeof(char*));
+			g.seq  = realloc(g.seq,  g.m_seqs * sizeof(char*));
+			g.qual = realloc(g.qual, g.m_seqs * sizeof(char*));
+			g.out  = realloc(g.out,  g.m_seqs * sizeof(char*));
 		}
-		puts("//");
+		g.name[g.n_seqs] = strdup(ks->name.s);
+		g.seq[g.n_seqs]  = strdup(ks->seq.s);
+		g.qual[g.n_seqs] = ks->qual.l? strdup(ks->qual.s) : 0; // these will be free'd in worker
+		++g.n_seqs;
+		l_seqs += ks->seq.l;
+		if (l_seqs >= batch_size) {
+			kt_for(g.n_threads, worker, &g, g.n_seqs);
+			for (i = 0; i < g.n_seqs; ++i) {
+				puts(g.out[i]);
+				free(g.out[i]);
+			}
+			g.n_seqs = l_seqs = 0;
+		}
+	}
+	// the last batch
+	kt_for(g.n_threads, worker, &g, g.n_seqs);
+	for (i = 0; i < g.n_seqs; ++i) {
+		puts(g.out[i]);
+		free(g.out[i]);
 	}
 	kseq_destroy(ks);
-	free(curr.a); free(prev.a); free(smem.a);
 
-	if (sa) fm_sa_destroy(sa);
-	rld_destroy(e);
+	for (i = 0; i < g.n_threads; ++i) {
+		free(g.mem[i].curr.a); free(g.mem[i].prev.a); free(g.mem[i].smem.a);
+		free(g.mem[i].str.s);
+	}
+	free(g.name); free(g.seq); free(g.qual); free(g.out);
+	if (g.sa) fm_sa_destroy((fmsa_t*)g.sa);
+	rld_destroy((rld_t*)g.e);
 	gzclose(fp);
 	return 0;
 }

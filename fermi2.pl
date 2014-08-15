@@ -137,15 +137,16 @@ sub utglog {
 			@a[3,4] = ($1, $2+$3+$4+$5) if /symbol counts.*\((\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/;
 		}
 		close($fh);
-		open($fh, "$pre.mag.gz.log") || die;
-		while (<$fh>) {
-			if (/average read distance ([\d\.]+)/) {
-				$a[6] = $1;
-			} elsif (/approximate genome size: (\d+)/) {
-				$a[7] = $1;
+		if (open($fh, "$pre.mag.gz.log")) {
+			while (<$fh>) {
+				if (/average read distance ([\d\.]+)/) {
+					$a[6] = $1;
+				} elsif (/approximate genome size: (\d+)/) {
+					$a[7] = $1;
+				}
 			}
-		}
-		close($fh);
+			close($fh);
+		} else { $a[6] = 0; $a[7] = 0; }
 		print(join("\t", @a), "\n");
 	}
 }
