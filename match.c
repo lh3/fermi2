@@ -375,7 +375,7 @@ int main_match(int argc, char *argv[])
 		free(g.mem[i].curr.a); free(g.mem[i].prev.a); free(g.mem[i].smem.a);
 		free(g.mem[i].cmp[0].s); free(g.mem[i].cmp[1].s); free(g.mem[i].str.s);
 	}
-	free(g.name); free(g.seq); free(g.qual); free(g.out);
+	free(g.name); free(g.seq); free(g.qual); free(g.out); free(g.mem);
 	if (g.sa) fm_sa_destroy((fmsa_t*)g.sa);
 	rld_destroy((rld_t*)g.e);
 	gzclose(fp);
