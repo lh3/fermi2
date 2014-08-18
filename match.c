@@ -301,6 +301,13 @@ int main_match(int argc, char *argv[])
 		fprintf(stderr, "         -m INT    show coordinate if the number of hits is no more than INT [%d]\n", g.max_sa_occ);
 		fprintf(stderr, "         -s INT    min occurrences [%d]\n", g.min_occ);
 		fprintf(stderr, "\n");
+		fprintf(stderr, "Output format:\n\n");
+		fprintf(stderr, "    SQ  seqName  seqLen\n");
+		fprintf(stderr, "    EM  start  end  occurrence [positions]\n");
+		fprintf(stderr, "    NS  start  leftLen  diffLen  rightLen  leftOcc  rightOcc  strand  seq  qual\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "  At an 'NS' line, the length of 'seq' always equals leftLen+diffLen+rightLen.\n");
+		fprintf(stderr, "\n");
 		return 1;
 	}
 
