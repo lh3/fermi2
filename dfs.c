@@ -93,7 +93,7 @@ void fm_dfs_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs_f
 void fm_dfs2_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs2_f func, void *data, int tid)
 { // this is the bidirectional version of fm_dfs_core(), requiring a bidirectional FM-index
 	int i, j, c;
-	rldintv_t *size, *t, *o;
+	rldintv_t *t, *o;
 	char *_path, *path;
 	kvec_t(rldintv_t) stack = {0,0,0};
 
@@ -102,7 +102,6 @@ void fm_dfs2_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs2
 	for (i = 0; i < n; ++i) // check bidirectionality
 		assert(e[i]->mcnt[2] == e[i]->mcnt[5] && e[i]->mcnt[3] == e[i]->mcnt[4]);
 	// allocation
-	size = alloca(sizeof(rldintv_t) * n);
 	t = alloca(sizeof(rldintv_t) * n);
 	o = alloca(sizeof(rldintv_t) * n * 6);
 	_path = alloca(max_k + 2);

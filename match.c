@@ -316,7 +316,7 @@ int main_match(int argc, char *argv[])
 		fprintf(stderr, "[E::%s] failed to open the sequence file\n", __func__);
 		return 1;
 	}
-	g.e = rld_restore(argv[optind]);
+	g.e = use_mmap? rld_restore_mmap(argv[optind]) : rld_restore(argv[optind]);
 	if (g.e == 0) {
 		fprintf(stderr, "[E::%s] failed to open the index file\n", __func__);
 		gzclose(fp);
