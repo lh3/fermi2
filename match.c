@@ -167,16 +167,18 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 		occ[0] = 0; occ[1] = p->ik.x[2];
 	} else if (p == 0) {
 		if ((uint32_t)q->ik.info == l_seq) return; // no novel allele
-		start = (uint32_t)q->ik.info; end = 0;
+		start = (uint32_t)q->ik.info; end = l_seq;
 		occ[0] = q->ik.x[2]; occ[1] = 0;
 	} else {
 		start = (uint32_t)q->ik.info, end = p->ik.info>>32;
 		if (start >= end && (q->ok[1][0].x[2] == q->ik.x[2] || q->ik.x[2] == p->ok[0][0].x[2])) return;
 		occ[0] = q->ik.x[2]; occ[1] = p->ik.x[2];
 	}
-	for (i = start; i < end; ++i)
-		if (seq[i] < 5) break;
-	if (i == end) return; // the gap is filled with "N"
+	if (start < end) {
+		for (i = start; i < end; ++i)
+			if (seq[i] < 5) break;
+		if (i == end) return; // the gap is filled with "N"
+	}
 	// extend
 	start0 = start, end0 = end;
 	start = start == 0?   0     : start - find_end(e, l_seq, seq, q->ik.x[2], start - 1, 1);
