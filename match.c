@@ -247,7 +247,7 @@ static void worker(void *data, long jid, int tid)
 				discover(g->e, pre < 0? 0 : &m->smem.a[pre], p, l_seq, seq, qual, &m->str, m->cmp);
 				pre = i;
 			}
-			discover(g->e, &m->smem.a[pre], 0, l_seq, seq, qual, &m->str, m->cmp);
+			discover(g->e, pre < 0? 0 : &m->smem.a[pre], 0, l_seq, seq, qual, &m->str, m->cmp);
 		} else {
 			for (i = 0; i < m->smem.n; ++i) {
 				fmdsmem_t *p = &m->smem.a[i];
