@@ -147,7 +147,6 @@ static int find_end(const rld_t *e, int l_seq, const char *seq, int64_t size, in
 		if (!is_back) c = fmd_comp(c);
 		l = e->cnt[c] + rld_rank11(e, l, c);
 		u = e->cnt[c] + rld_rank11(e, u, c);
-//		fprintf(stderr, "[%d] %ld, %ld\n", i, u - l, size);
 		if (u - l <= size) break;
 	}
 	if (u - l == size) i += step;
@@ -171,7 +170,7 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 		occ[0] = q->ik.x[2]; occ[1] = 0;
 	} else {
 		start = (uint32_t)q->ik.info, end = p->ik.info>>32;
-		if (start >= end && (q->ok[1][0].x[2] == q->ik.x[2] || q->ik.x[2] == p->ok[0][0].x[2])) return;
+		if (start >= end && (q->ok[1][0].x[2] == q->ik.x[2] || p->ik.x[2] == p->ok[0][0].x[2])) return; // TODO: is this the desired behavior???
 		occ[0] = q->ik.x[2]; occ[1] = p->ik.x[2];
 	}
 	if (start < end) {
