@@ -138,65 +138,87 @@ typedef struct {
 	char **name, **seq, **qual, **out;
 } global_t;
 
-static int find_end(const rld_t *e, int l_seq, const char *seq, int64_t size, int start, int is_back)
-{
-	int i, step = is_back? -1 : 1, end = is_back? -1 : l_seq;
-	int64_t l = 0, u = e->mcnt[0];
-	for (i = start; i != end; i += step) {
-		int c = seq[i];
-		if (!is_back) c = fmd_comp(c);
-		l = e->cnt[c] + rld_rank11(e, l, c);
-		u = e->cnt[c] + rld_rank11(e, u, c);
-		if (u - l <= size) break;
-	}
-	if (u - l == size) i += step;
-	return abs(i - start);
-}
-
 static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int l_seq, const char *seq, const char *qual, kstring_t *s, kstring_t cmp[2])
 {
-	int start, end, start0, end0, i, occ[2];
+	int start, end, i, ext[2], left, right, tmp_l;
+	int64_t occ[2];
+	rldintv_t ovlp;
+
 	// find the coordinate from which the extension will be applied
 	if (q == 0 && p == 0) {
 		start = 0; end = l_seq;
-		occ[0] = occ[1] = 0;
 	} else if (q == 0) {
 		if (p->ik.info>>32 == 0) return; // no novel allele
 		start = 0; end = p->ik.info>>32;
-		occ[0] = 0; occ[1] = p->ik.x[2];
 	} else if (p == 0) {
 		if ((uint32_t)q->ik.info == l_seq) return; // no novel allele
 		start = (uint32_t)q->ik.info; end = l_seq;
-		occ[0] = q->ik.x[2]; occ[1] = 0;
 	} else {
 		start = (uint32_t)q->ik.info, end = p->ik.info>>32;
-		if (start >= end && (q->ok[1][0].x[2] == q->ik.x[2] || p->ik.x[2] == p->ok[0][0].x[2])) return; // TODO: is this the desired behavior???
-		occ[0] = q->ik.x[2]; occ[1] = p->ik.x[2];
+		if (start >= end && q->ok[1][0].x[2] == q->ik.x[2] && p->ik.x[2] == p->ok[0][0].x[2]) return;
 	}
-	if (start < end) {
-		for (i = start; i < end; ++i)
+	// find the SAI for the overlap (if applicable)
+	memset(&ovlp, 0, sizeof(rldintv_t));
+	ovlp.x[2] = e->mcnt[0];
+	if (start <= end) { // no overlap
+		left = start - 1, right = end;
+		for (i = left + 1; i < right; ++i)
 			if (seq[i] < 5) break;
 		if (i == end) return; // the gap is filled with "N"
+	} else {
+		rldintv_t ok[6];
+		left = end - 1, right = start;
+		for (i = right - 1; i > left; --i) {
+			rld_extend(e, &ovlp, ok, 1);
+			ovlp = ok[(int)seq[i]];
+			assert(ovlp.x[2] > 0);
+		}
 	}
-	// extend
-	start0 = start, end0 = end;
-	start = start == 0?   0     : start - find_end(e, l_seq, seq, q->ik.x[2], start - 1, 1);
-	end   = end == l_seq? l_seq : end   + find_end(e, l_seq, seq, p->ik.x[2], end,       0);
-	// find which sequence to output
+	// left extension
+	if (left >= 0) {
+		int64_t l = ovlp.x[0], u = l + ovlp.x[2];
+		for (i = left; i >= 0; --i) {
+			int c = seq[i];
+			l = e->cnt[c] + rld_rank11(e, l, c);
+			u = e->cnt[c] + rld_rank11(e, u, c);
+			if (u - l <= q->ik.x[2]) break;
+		}
+		assert(i >= 0 && u - l == q->ik.x[2]);
+		ext[0] = left + 1 - i;
+		occ[0] = u - l;
+	} else occ[0] = 0, ext[0] = 0;
+	// right extension
+	if (right < l_seq) {
+		int64_t l = ovlp.x[1], u = l + ovlp.x[2];
+		for (i = right; i < l_seq; ++i) {
+			int c = fmd_comp(seq[i]);
+			l = e->cnt[c] + rld_rank11(e, l, c);
+			u = e->cnt[c] + rld_rank11(e, u, c);
+			if (u - l <= p->ik.x[2]) break;
+		}
+		assert(i < l_seq && u - l == p->ik.x[2]);
+		ext[1] = i + 1 - right;
+		occ[1] = u - l;
+	} else occ[1] = 0, ext[1] = 0;
+	if (ovlp.x[2] == occ[0] + occ[1]) return;
+	// cut sequence
 	cmp[0].l = cmp[1].l = 0;
-	kputsn(&seq[start], end - start, &cmp[0]);
-	kputsn(&seq[start], end - start, &cmp[1]);
+	kputsn(&seq[left + 1 - ext[0]], (right + ext[1]) - (left + 1 - ext[0]), &cmp[0]);
+	kputsn(cmp[0].s, cmp[0].l, &cmp[1]);
 	seq_revcomp6(cmp[1].l, (uint8_t*)cmp[1].s);
 	// print
+	if (ovlp.x[2] == e->mcnt[0]) ovlp.x[2] = 0;
+	ksprintf(s, "NS\t%d\t", left + 1 - ext[0]);
+	tmp_l = end < start? start - end : 0;
 	if (strcmp(cmp[0].s, cmp[1].s) <= 0) {
-		ksprintf(s, "NS\t%d\t%d\t%d\t%d\t%ld\t%ld\t+\t", start, start0 - start, end0 - start0, end - end0, (long)occ[0], (long)occ[1]);
+		ksprintf(s, "+\t%d\t%d\t%d\t%ld\t%ld\t%ld\t", ext[0] + tmp_l, end - start, ext[1] + tmp_l, (long)occ[0], (long)ovlp.x[2], (long)occ[1]);
 		for (i = 0; i < cmp[0].l; ++i)
 			kputc("$ACGTN"[(int)cmp[0].s[i]], s);
 		kputc('\t', s);
 		if (qual) kputsn(&qual[start], end - start, s);
 		else kputc('*', s);
 	} else {
-		ksprintf(s, "NS\t%d\t%d\t%d\t%d\t%ld\t%ld\t-\t", start, end - end0, end0 - start0, start0 - start, (long)occ[1], (long)occ[0]);
+		ksprintf(s, "-\t%d\t%d\t%d\t%ld\t%ld\t%ld\t", ext[1] + tmp_l, end - start, ext[0] + tmp_l, (long)occ[1], (long)ovlp.x[2], (long)occ[0]);
 		for (i = 0; i < cmp[0].l; ++i)
 			kputc("$ACGTN"[(int)cmp[1].s[i]], s);
 		kputc('\t', s);
