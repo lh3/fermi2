@@ -140,7 +140,7 @@ typedef struct {
 
 static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int l_seq, const char *seq, const char *qual, kstring_t *s, kstring_t cmp[2])
 {
-	int start, end, i, ext[2], left, right, tmp_l;
+	int start, end, i, ext[2], left, right, tmp_l, pos;
 	int64_t occ[2];
 	rldintv_t ovlp;
 
@@ -202,20 +202,21 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 	} else occ[1] = 0, ext[1] = 0;
 	if (ovlp.x[2] == occ[0] + occ[1]) return;
 	// cut sequence
+	pos = left + 1 - ext[0];
 	cmp[0].l = cmp[1].l = 0;
-	kputsn(&seq[left + 1 - ext[0]], (right + ext[1]) - (left + 1 - ext[0]), &cmp[0]);
+	kputsn(&seq[pos], (right + ext[1]) - (left + 1 - ext[0]), &cmp[0]);
 	kputsn(cmp[0].s, cmp[0].l, &cmp[1]);
 	seq_revcomp6(cmp[1].l, (uint8_t*)cmp[1].s);
 	// print
 	if (ovlp.x[2] == e->mcnt[0]) ovlp.x[2] = 0;
-	ksprintf(s, "NS\t%d\t", left + 1 - ext[0]);
+	ksprintf(s, "NS\t%d\t", pos);
 	tmp_l = end < start? start - end : 0;
 	if (strcmp(cmp[0].s, cmp[1].s) <= 0) {
 		ksprintf(s, "+\t%d\t%d\t%d\t%ld\t%ld\t%ld\t", ext[0] + tmp_l, end - start, ext[1] + tmp_l, (long)occ[0], (long)ovlp.x[2], (long)occ[1]);
 		for (i = 0; i < cmp[0].l; ++i)
 			kputc("$ACGTN"[(int)cmp[0].s[i]], s);
 		kputc('\t', s);
-		if (qual) kputsn(&qual[start], end - start, s);
+		if (qual) kputsn(&qual[pos], cmp[0].l, s);
 		else kputc('*', s);
 	} else {
 		ksprintf(s, "-\t%d\t%d\t%d\t%ld\t%ld\t%ld\t", ext[1] + tmp_l, end - start, ext[0] + tmp_l, (long)occ[1], (long)ovlp.x[2], (long)occ[0]);
@@ -223,7 +224,7 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 			kputc("$ACGTN"[(int)cmp[1].s[i]], s);
 		kputc('\t', s);
 		if (qual) {
-			for (i = end - 1; i >= start; --i)
+			for (i = pos + cmp[0].l - 1; i >= pos; --i)
 				kputc(qual[i], s);
 		} else kputc('*', s);
 	}
