@@ -26,7 +26,7 @@ typedef struct {
 typedef void (*fmdfs_f)(void *data, int tid, int k, char *path, const fmint6_t *size, int *cont);
 typedef void (*fmdfs2_f)(void *data, int tid, int k, char *path, const rldintv_t *ik, const rldintv_t *ok, int *cont);
 
-void fm_dfs_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs_f func, void *data, int tid)
+void fm_dfs_core(int n, rld_t *const*e, int is_half, int max_k, int suf_len, int suf, fmdfs_f func, void *data, int tid)
 { // this routine is similar to fmc_collect1()
 	int i, j, c;
 	fmint6_t *size, *tk, *tl;
@@ -35,7 +35,7 @@ void fm_dfs_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs_f
 	uint64_t ok[6], ol[6];
 	kvec_t(elem_t) stack = {0,0,0};
 
-	assert(max_k&1);
+	assert((max_k&1) || !is_half);
 	t = alloca(sizeof(elem_t) * n);
 	size = alloca(sizeof(fmint6_t) * n);
 	tk = alloca(sizeof(fmint6_t) * n);
@@ -74,7 +74,7 @@ void fm_dfs_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs_f
 			}
 		}
 		func(data, tid, t->d, path + (max_k - t->d), size, &cont);
-		end = t->d == max_k>>1? 2 : 4;
+		end = t->d == max_k>>1 && is_half? 2 : 4;
 		for (c = 1; c <= end; ++c) {
 			if ((cont>>c&1) == 0) continue;
 			for (i = 0; i < n; ++i) {
@@ -90,7 +90,7 @@ void fm_dfs_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs_f
 	free(stack.a);
 }
 
-void fm_dfs2_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs2_f func, void *data, int tid)
+void fm_dfs2_core(int n, rld_t *const*e, int is_half, int max_k, int suf_len, int suf, fmdfs2_f func, void *data, int tid)
 { // this is the bidirectional version of fm_dfs_core(), requiring a bidirectional FM-index
 	int i, j, c;
 	rldintv_t *t, *o;
@@ -98,7 +98,7 @@ void fm_dfs2_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs2
 	kvec_t(rldintv_t) stack = {0,0,0};
 
 	// check if the input is correct
-	assert(max_k&1);
+	assert((max_k&1) || !is_half);
 	for (i = 0; i < n; ++i) // check bidirectionality
 		assert(e[i]->mcnt[2] == e[i]->mcnt[5] && e[i]->mcnt[3] == e[i]->mcnt[4]);
 	// allocation
@@ -135,7 +135,7 @@ void fm_dfs2_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs2
 				if (oi[c].x[2] == 0) cont &= ~(1<<c);
 		}
 		func(data, tid, depth, path + (max_k - depth), t, o, &cont);
-		end = depth == max_k>>1? 2 : 4;
+		end = depth == max_k>>1 && is_half? 2 : 4;
 		for (c = 1; c <= end; ++c) {
 			if ((cont>>c&1) == 0) continue;
 			for (i = 0, oi = o; i < n; ++i, oi += 6) {
@@ -150,7 +150,7 @@ void fm_dfs2_core(int n, rld_t *const*e, int max_k, int suf_len, int suf, fmdfs2
 }
 
 typedef struct {
-	int n, max_k, suf_len;
+	int n, max_k, suf_len, is_half;
 	rld_t *const*e;
 	void *data;
 	fmdfs_f func;
@@ -160,18 +160,18 @@ typedef struct {
 static void dfs_worker(void *data, long suf, int tid)
 {
 	shared_t *d = (shared_t*)data;
-	if (d->func) fm_dfs_core(d->n, d->e, d->max_k, d->suf_len, suf, d->func, d->data, tid);
-	if (d->func2) fm_dfs2_core(d->n, d->e, d->max_k, d->suf_len, suf, d->func2, d->data, tid);
+	if (d->func) fm_dfs_core(d->n, d->e, d->is_half, d->max_k, d->suf_len, suf, d->func, d->data, tid);
+	if (d->func2) fm_dfs2_core(d->n, d->e, d->is_half, d->max_k, d->suf_len, suf, d->func2, d->data, tid);
 	if (dfs_verbose >= 4)
 		fprintf(stderr, "[M::%s] processed suffix %ld in thread %d\n", __func__, suf, tid);
 }
 
-void fm_dfs(int n, rld_t *const*e, int max_k, int n_threads, fmdfs_f func, fmdfs2_f func2, void *data)
+void fm_dfs(int n, rld_t *const*e, int is_half, int max_k, int n_threads, fmdfs_f func, fmdfs2_f func2, void *data)
 {
 	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
 	shared_t d;
 	int n_suf;
-	d.n = n, d.e = e, d.data = data, d.func = func, d.func2 = func2, d.max_k = max_k;
+	d.n = n, d.e = e, d.data = data, d.func = func, d.func2 = func2, d.max_k = max_k; d.is_half = is_half;
 	d.suf_len = max_k>>1 < DFS_SUF_LEN? max_k>>1 : DFS_SUF_LEN;
 	n_suf = 1<<d.suf_len*2;
 	n_threads = n_threads < n_suf? n_threads : n_suf;
@@ -268,8 +268,8 @@ int main_count(int argc, char *argv[])
 		if (dfs_verbose >= 2)
 			fprintf(stderr, "[W::%s] %d is an even number; change k to %d\n", __func__, d.len-1, d.len);
 	}
-	if (d.bidir) fm_dfs(1, &e, d.len, n_threads, 0, dfs_count2, &d);
-	else fm_dfs(1, &e, d.len, n_threads, dfs_count, 0, &d);
+	if (d.bidir) fm_dfs(1, &e, 1, d.len, n_threads, 0, dfs_count2, &d);
+	else fm_dfs(1, &e, 1, d.len, n_threads, dfs_count, 0, &d);
 	rld_destroy(e);
 	for (i = 0; i < n_threads; ++i) free(d.str[i].s);
 	free(d.str);
