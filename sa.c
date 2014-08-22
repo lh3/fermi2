@@ -5,8 +5,6 @@
 #include "fermi2.h"
 #include "kvec.h"
 
-typedef kvec_t(uint64_t) uint64_v;
-
 static void sa_gen1(const rld_t *e, fmsa_t *sa, int64_t k, uint64_v *buf)
 {
 	int c, mask = (1<<sa->ss) - 1;

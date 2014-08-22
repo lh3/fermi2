@@ -16,6 +16,7 @@ typedef struct {
 
 typedef struct { size_t n, m; rldintv_t *a; } rldintv_v;
 typedef struct { size_t n, m; fmdsmem_t *a; } fmdsmem_v;
+typedef struct { size_t n, m; uint64_t  *a; } uint64_v;
 
 typedef struct {
 	int ms;

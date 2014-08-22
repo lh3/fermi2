@@ -275,3 +275,101 @@ int main_count(int argc, char *argv[])
 	free(d.str);
 	return 0;
 }
+
+/***********
+ * fastsim *
+ ***********/
+
+#include "fermi2.h"
+#include "khash.h"
+KHASH_MAP_INIT_INT64(64, int)
+
+typedef struct {
+	const rld_t *e;
+	const fmsa_t *sa;
+	int k, max_occ;
+	khash_t(64) **cnt;
+	uint64_v *tmp_a;
+} dfs_sim_t;
+
+static void dfs_sim2(void *data, int tid, int k, char *path, const rldintv_t *ik, const rldintv_t *ok, int *cont)
+{
+	dfs_sim_t *d = (dfs_sim_t*)data;
+	int i, j;
+	uint64_v *p;
+	if (k < d->k || ik->x[2] > d->max_occ) return;
+	p = &d->tmp_a[tid];
+	p->n = 0;
+	for (i = 0; i < ik->x[2]; ++i) {
+		int64_t si, pos;
+		pos = fm_sa(d->e, d->sa, ik->x[0] + i, &si);
+		kv_push(uint64_t, *p, si);
+	}
+	for (i = 1; i < p->n; ++i) {
+		for (j = 0; j < i; ++j) {
+			uint64_t key;
+			int absent;
+			khint_t itr;
+			if (p->a[i] == p->a[j]) continue;
+			key = p->a[i] < p->a[j]? (uint64_t)p->a[i]<<32 | p->a[j] : (uint64_t)p->a[j]<<32 | p->a[i];
+			itr = kh_put(64, d->cnt[tid], key, &absent);
+			if (absent) kh_val(d->cnt[tid], itr) = 1;
+			else ++kh_val(d->cnt[tid], itr);
+		}
+	}
+}
+
+int main_fastsim(int argc, char *argv[])
+{
+	int i, c, n_threads = 1;
+	rld_t *e;
+	fmsa_t *sa;
+	dfs_sim_t d;
+
+	d.k = 23, d.max_occ = 500;
+	while ((c = getopt(argc, argv, "t:k:m:")) >= 0) {
+		if (c == 't') n_threads = atoi(optarg);
+		else if (c == 'k') d.k = atoi(optarg);
+		else if (c == 'm') d.max_occ = atoi(optarg);
+	}
+	if (optind + 2 > argc) {
+		fprintf(stderr, "Usage: fermi2 fastsim [-t nThreads=%d] [-k kmer=%d] [-m maxOcc=%d] <in.fmd> <in.sa>\n", n_threads, d.k, d.max_occ);
+		return 1;
+	}
+	// initialize
+	e = rld_restore(argv[optind]);
+	sa = fm_sa_restore(argv[optind+1]);
+	d.e = e; d.sa = sa;
+	d.cnt = calloc(n_threads, sizeof(void*));
+	d.tmp_a = calloc(n_threads, sizeof(kvec_t(int64_t)));
+	for (i = 0; i < n_threads; ++i)
+		d.cnt[i] = kh_init(64);
+	// collect counts
+	fm_dfs(1, &e, 1, d.k, n_threads, 0, dfs_sim2, &d);
+	fm_sa_destroy(sa);
+	rld_destroy(e);
+	// merge hash table
+	if (n_threads > 1) {
+		khash_t(64) *h0 = d.cnt[0];
+		khint_t k, l;
+		for (i = 1; i < n_threads; ++i) {
+			khash_t(64) *h = d.cnt[i];
+			int absent;
+			for (k = 0; k < kh_end(h); ++k) {
+				if (!kh_exist(h, k)) continue;
+				l = kh_put(64, h0, kh_key(h, k), &absent);
+				if (absent) kh_val(h0, l) = kh_val(h, k);
+				else kh_val(h0, l) += kh_val(h, k);
+			}
+			kh_destroy(64, h);
+		}
+		for (k = 0; k < kh_end(h0); ++k)
+			if (kh_exist(h0, k))
+				printf("%d\t%d\t%d\n", (int)(kh_key(h0, k)>>32), (int)kh_key(h0, k), (int)kh_val(h0, k));
+	}
+	// free
+	for (i = 0; i < n_threads; ++i) free(d.tmp_a[i].a);
+	kh_destroy(64, d.cnt[0]);
+	free(d.tmp_a); free(d.cnt);
+	return 0;
+}
