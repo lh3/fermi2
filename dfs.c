@@ -288,35 +288,26 @@ typedef struct {
 	const rld_t *e;
 	const fmsa_t *sa;
 	int k, max_occ;
-	khash_t(64) **cnt;
-	uint64_v *tmp_a;
+	kstring_t *s;
 } dfs_sim_t;
 
 static void dfs_sim2(void *data, int tid, int k, char *path, const rldintv_t *ik, const rldintv_t *ok, int *cont)
 {
 	dfs_sim_t *d = (dfs_sim_t*)data;
-	int i, j;
-	uint64_v *p;
-	if (k < d->k || ik->x[2] > d->max_occ) return;
-	p = &d->tmp_a[tid];
-	p->n = 0;
+	int c, i;
+	kstring_t *s;
+	for (c = 0; c < 6; ++c)
+		if (ok[c].x[2] < 2) *cont &= ~(1<<c);
+	if (k < d->k || ik->x[2] > d->max_occ || ik->x[2] < 2) return;
+	s = &d->s[tid];
+	s->l = 0;
 	for (i = 0; i < ik->x[2]; ++i) {
-		int64_t si, pos;
-		pos = fm_sa(d->e, d->sa, ik->x[0] + i, &si);
-		kv_push(uint64_t, *p, si);
+		int64_t si;
+		fm_sa(d->e, d->sa, ik->x[0] + i, &si);
+		if (i) kputc('\t', s);
+		kputl(si, s);
 	}
-	for (i = 1; i < p->n; ++i) {
-		for (j = 0; j < i; ++j) {
-			uint64_t key;
-			int absent;
-			khint_t itr;
-			if (p->a[i] == p->a[j]) continue;
-			key = p->a[i] < p->a[j]? (uint64_t)p->a[i]<<32 | p->a[j] : (uint64_t)p->a[j]<<32 | p->a[i];
-			itr = kh_put(64, d->cnt[tid], key, &absent);
-			if (absent) kh_val(d->cnt[tid], itr) = 1;
-			else ++kh_val(d->cnt[tid], itr);
-		}
-	}
+	puts(s->s);
 }
 
 int main_fastsim(int argc, char *argv[])
@@ -340,36 +331,13 @@ int main_fastsim(int argc, char *argv[])
 	e = rld_restore(argv[optind]);
 	sa = fm_sa_restore(argv[optind+1]);
 	d.e = e; d.sa = sa;
-	d.cnt = calloc(n_threads, sizeof(void*));
-	d.tmp_a = calloc(n_threads, sizeof(kvec_t(int64_t)));
-	for (i = 0; i < n_threads; ++i)
-		d.cnt[i] = kh_init(64);
+	d.s = calloc(n_threads, sizeof(kstring_t));
 	// collect counts
 	fm_dfs(1, &e, 1, d.k, n_threads, 0, dfs_sim2, &d);
+	// free
 	fm_sa_destroy(sa);
 	rld_destroy(e);
-	// merge hash table
-	if (n_threads > 1) {
-		khash_t(64) *h0 = d.cnt[0];
-		khint_t k, l;
-		for (i = 1; i < n_threads; ++i) {
-			khash_t(64) *h = d.cnt[i];
-			int absent;
-			for (k = 0; k < kh_end(h); ++k) {
-				if (!kh_exist(h, k)) continue;
-				l = kh_put(64, h0, kh_key(h, k), &absent);
-				if (absent) kh_val(h0, l) = kh_val(h, k);
-				else kh_val(h0, l) += kh_val(h, k);
-			}
-			kh_destroy(64, h);
-		}
-		for (k = 0; k < kh_end(h0); ++k)
-			if (kh_exist(h0, k))
-				printf("%d\t%d\t%d\n", (int)(kh_key(h0, k)>>32), (int)kh_key(h0, k), (int)kh_val(h0, k));
-	}
-	// free
-	for (i = 0; i < n_threads; ++i) free(d.tmp_a[i].a);
-	kh_destroy(64, d.cnt[0]);
-	free(d.tmp_a); free(d.cnt);
+	for (i = 0; i < n_threads; ++i) free(d.s[i].s);
+	free(d.s);
 	return 0;
 }
