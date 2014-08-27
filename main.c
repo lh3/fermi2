@@ -15,7 +15,6 @@ int main_assemble(int argc, char *argv[]);
 int main_simplify(int argc, char *argv[]);
 int main_sa(int argc, char *argv[]);
 int main_match(int argc, char *argv[]);
-int main_fastsim(int argc, char *argv[]);
 
 void liftrlimit(void);
 double cputime(void);
@@ -59,7 +58,6 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "simplify") == 0) ret = main_simplify(argc-1, argv+1);
 	else if (strcmp(argv[1], "sa") == 0) ret = main_sa(argc-1, argv+1);
 	else if (strcmp(argv[1], "match") == 0) ret = main_match(argc-1, argv+1);
-	else if (strcmp(argv[1], "fastsim") == 0) ret = main_fastsim(argc-1, argv+1);
 	else {
 		fprintf(stderr, "[E::%s] unknown command\n", __func__);
 		return 1;
