@@ -912,7 +912,10 @@ void fmc_correct1(const fmc_opt_t *opt, fmc_hash_t **h, char **s, char **q, fmc_
 			if (b->b != a->ori.a[b->i].b)
 				++ecs->n_diff, ecs->q_diff += a->ori.a[b->i].q;
 			(*s)[i] = b->b == a->ori.a[b->i].b? "ACGTN"[b->b] : "acgtn"[b->b];
-			qual = b->f? b->min_diff : b->q;
+			if (b->f) {
+				if (b->b != a->ori.a[b->i].b) qual = b->min_diff;
+				else qual = b->q > b->min_diff? b->q : b->min_diff;
+			} else qual = b->q;
 			(*q)[i] = (qual < FMC_Q_MAX_OUT? qual : FMC_Q_MAX_OUT) + 33;
 		} else (*s)[i] = 'N', (*q)[i] = 33;
 	}
