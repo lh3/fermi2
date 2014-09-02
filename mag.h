@@ -14,7 +14,7 @@
 #define MAG_F_NO_SIMPL   0x80
 
 typedef struct {
-	int flag, max_arc, n_iter, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx;
+	int flag, max_arc, n_iter, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx, min_merge_len;
 	float min_dratio0, min_dratio1;
 	float max_bcov, max_bfrac;
 } magopt_t;
@@ -61,7 +61,7 @@ extern "C" {
 	void mag_g_print(const mag_t *g);
 	void mag_g_rm_vext(mag_t *g, int min_len, int min_nsr);
 	void mag_g_rm_edge(mag_t *g, int min_ovlp, double min_ratio, int min_len, int min_nsr);
-	void mag_g_merge(mag_t *g, int rmdup);
+	void mag_g_merge(mag_t *g, int rmdup, int min_merge_len);
 	void mag_g_simplify_bubble(mag_t *g, int max_vtx, int max_dist);
 	void mag_g_pop_simple(mag_t *g, float max_cov, float max_frac, int aggressive);
 	void mag_g_pop_open(mag_t *g, int min_elen);
