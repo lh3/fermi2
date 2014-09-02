@@ -229,9 +229,10 @@ mag_t *mag_g_read(const char *fn, const magopt_t *opt)
 				r->x = strtol(q, &q, 10); ++q;
 				r->y = strtol(q, &q, 10); ++q;
 				g->min_ovlp = g->min_ovlp < r->y? g->min_ovlp : r->y;
-				if (max < r->y) max = max2, max = r->y;
+				if (max < r->y) max2 = max, max = r->y;
 				else if (max2 < r->y) max2 = r->y;
 			}
+			p->max_ovlp[j] = max < 0xffff? max : 0xffff;
 			++q; // skip the tailing blank
 			if (!(opt->flag & MAG_F_READ_ORI)) {
 				double thres = (int)(max2 * opt->min_dratio0 + .499);
@@ -619,7 +620,6 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 
 	if ((opt->flag & MAG_F_CLEAN) == 0) return;
 	if (g->min_ovlp < opt->min_ovlp) g->min_ovlp = opt->min_ovlp;
-	//mag_vh_simplify_bubble(g, tid2idd(g->h, 34356802), 512, 500, a); exit(0); // a good case
 	mag_g_rm_vext(g, opt->min_elen, opt->min_ensr < 3? opt->min_ensr : 3);
 	for (j = 0; j < opt->n_iter; ++j) {
 		double r = opt->n_iter == 1? 1. : .5 + .5 * j / (opt->n_iter - 1);
