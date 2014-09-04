@@ -598,15 +598,15 @@ magopt_t *mag_init_opt()
 	o = calloc(1, sizeof(magopt_t));
 	o->flag = MAG_F_READnMERGE;
 	o->max_arc = 512;
-	o->min_dratio0 = 0.7;
+	o->min_dratio0 = 0.6;
 
 	o->n_iter = 3;
 	o->min_elen = 300;
-	o->min_ovlp = 60;
+	o->min_ovlp = 0;
 	o->min_merge_len = 0;
 	o->min_ensr = 4;
 	o->min_insr = 3;
-	o->min_dratio1 = 0.8;
+	o->min_dratio1 = 0.7;
 
 	o->max_bcov = 10.;
 	o->max_bfrac = 0.15;
@@ -626,8 +626,8 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 	for (j = 0; j < opt->n_iter; ++j) {
 		double r = opt->n_iter == 1? 1. : .5 + .5 * j / (opt->n_iter - 1);
 		t = cputime();
-		mag_g_rm_edge(g, opt->min_ovlp * r, opt->min_dratio1 * r, opt->min_elen, opt->min_ensr);
-		mag_g_rm_vext(g, opt->min_elen * r, opt->min_ensr * r > 2.? opt->min_ensr * r > 2. : 2);
+		mag_g_rm_edge(g, g->min_ovlp * r, opt->min_dratio1 * r, opt->min_elen, opt->min_ensr);
+		mag_g_rm_vext(g, opt->min_elen * r, opt->min_ensr * r > 2.? opt->min_ensr * r : 2);
 		mag_g_merge(g, 1, opt->min_merge_len);
 		if (fm_verbose >= 3)
 			fprintf(stderr, "[M::%s] finished simple graph simplification round %d in %.3f sec.\n", __func__, j+1, cputime() - t);
@@ -652,13 +652,13 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 			fprintf(stderr, "[M::%s] simplified complex bubbles in %.3f sec.\n", __func__, cputime() - t);
 	}
 	t = cputime();
-	mag_g_pop_simple(g, opt->max_bcov, opt->max_bfrac, opt->flag & MAG_F_AGGRESSIVE);
+	mag_g_pop_simple(g, opt->max_bcov, opt->max_bfrac, opt->min_merge_len, opt->flag & MAG_F_AGGRESSIVE);
 	if (fm_verbose >= 3)
 		fprintf(stderr, "[M::%s] popped closed bubbles in %.3f sec.\n", __func__, cputime() - t);
 	if (opt->min_insr >= 2) {
 		t = cputime();
 		mag_g_rm_vint(g, opt->min_elen, opt->min_insr, g->min_ovlp);
-		mag_g_rm_edge(g, opt->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
+		mag_g_rm_edge(g, g->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
 		mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
 		mag_g_merge(g, 1, opt->min_merge_len);
 		if (fm_verbose >= 3)

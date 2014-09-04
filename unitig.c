@@ -112,7 +112,7 @@ static rldintv_t overlap_intv(const rld_t *e, int len, const uint8_t *seq, int m
 
 typedef struct {
 	const rld_t *e;
-	int min_match;
+	int min_match, min_merge_len;
 	rldintv_v a[2], nei;
 	fm32s_v cat;
 	uint64_t *used, *bend;
@@ -293,6 +293,7 @@ static int unitig_unidir(aux_t *a, kstring_t *s, kstring_t *cov, int beg0, uint6
 			a->nei.n = 0;
 			break;
 		}
+		if ((int)a->nei.a[0].info < a->min_merge_len) break; // the overlap is not long enough
 		*end = a->nei.a[0].x[1];
 		set_bits(a->used, &a->nei.a[0]); // successful extension
 		++n_reads;
@@ -374,7 +375,6 @@ typedef struct {
 	uint64_t *used, *bend, *visited;
 	const rld_t *e;
 	thrdat_t *d;
-	int min_match;
 } worker_t;
 
 static void worker(void *data, long _i, int tid)
@@ -400,7 +400,7 @@ static void worker(void *data, long _i, int tid)
 	}
 }
 
-int fm6_unitig(const rld_t *e, int min_match, int n_threads)
+int fm6_unitig(const rld_t *e, int min_match, int min_merge_len, int n_threads)
 {
 	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
 	worker_t w;
@@ -412,7 +412,8 @@ int fm6_unitig(const rld_t *e, int min_match, int n_threads)
 	assert(e->mcnt[1] >= n_threads * 2);
 	w.d = calloc(n_threads, sizeof(thrdat_t));
 	for (j = 0; j < n_threads; ++j) {
-		w.d[j].a.e = e; w.d[j].a.min_match = min_match; w.d[j].a.used = w.used; w.d[j].a.bend = w.bend;
+		w.d[j].a.e = e; w.d[j].a.min_match = min_match; w.d[j].a.min_merge_len = min_merge_len;
+		w.d[j].a.used = w.used; w.d[j].a.bend = w.bend;
 	}
 	kt_for(n_threads, worker, &w, e->mcnt[1]);
 	for (j = 0; j < n_threads; ++j) {
@@ -426,11 +427,12 @@ int fm6_unitig(const rld_t *e, int min_match, int n_threads)
 
 int main_assemble(int argc, char *argv[])
 {
-	int c, use_mmap = 0, n_threads = 1, min_match = 30;
+	int c, use_mmap = 0, n_threads = 1, min_match = 31, min_merge_len = 0;
 	rld_t *e;
-	while ((c = getopt(argc, argv, "Ml:t:r:")) >= 0) {
+	while ((c = getopt(argc, argv, "Ml:t:r:m:")) >= 0) {
 		switch (c) {
 			case 'l': min_match = atoi(optarg); break;
+			case 'm': min_merge_len = atoi(optarg); break;
 			case 'M': use_mmap = 1; break;
 			case 't': n_threads = atoi(optarg); break;
 		}
@@ -439,12 +441,13 @@ int main_assemble(int argc, char *argv[])
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 assemble [options] <reads.rld>\n\n");
 		fprintf(stderr, "Options: -l INT      min match [%d]\n", min_match);
+		fprintf(stderr, "         -m INT      min merge length [%d]\n", min_merge_len);
 		fprintf(stderr, "         -t INT      number of threads [1]\n");
 		fprintf(stderr, "\n");
 		return 1;
 	}
 	e = use_mmap? rld_restore_mmap(argv[optind]) : rld_restore(argv[optind]);
-	fm6_unitig(e, min_match, n_threads);
+	fm6_unitig(e, min_match, min_merge_len, n_threads);
 	rld_destroy(e);
 	return 0;
 }
