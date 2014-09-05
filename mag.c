@@ -670,16 +670,14 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 
 	if ((opt->flag & MAG_F_CLEAN) == 0) return;
 	if (g->min_ovlp < opt->min_ovlp) g->min_ovlp = opt->min_ovlp;
-	for (j = 2; j <= opt->min_ensr; ++j) {
+	for (j = 2; j <= opt->min_ensr; ++j)
 		mag_g_rm_vext(g, opt->min_elen, j);
-		mag_g_merge(g, 0, opt->min_merge_len);
-	}
+	mag_g_merge(g, 0, opt->min_merge_len);
 	mag_g_rm_edge(g, g->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
 	mag_g_merge(g, 1, opt->min_merge_len);
-	for (j = 2; j <= opt->min_ensr; ++j) {
+	for (j = 2; j <= opt->min_ensr; ++j)
 		mag_g_rm_vext(g, opt->min_elen, j);
-		mag_g_merge(g, 0, opt->min_merge_len);
-	}
+	mag_g_merge(g, 0, opt->min_merge_len);
 	if (opt->flag & MAG_F_AGGRESSIVE) {
 		t = cputime();
 		mag_g_pop_open(g, opt->min_elen);
@@ -693,13 +691,11 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 			fprintf(stderr, "[M::%s] simplified complex bubbles in %.3f sec.\n", __func__, cputime() - t);
 	}
 	mag_g_pop_simple(g, opt->max_bcov, opt->max_bfrac, opt->min_merge_len, opt->flag & MAG_F_AGGRESSIVE);
-	for (j = 2; j <= opt->min_insr; ++j) {
-		mag_g_rm_vint(g, opt->min_elen, j, g->min_ovlp);
-		mag_g_rm_edge(g, g->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
-		mag_g_merge(g, 1, opt->min_merge_len);
-		mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
-		mag_g_merge(g, 0, opt->min_merge_len);
-	}
+	mag_g_rm_vint(g, opt->min_elen, opt->min_insr, g->min_ovlp);
+	mag_g_rm_edge(g, g->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
+	mag_g_merge(g, 1, opt->min_merge_len);
+	mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
+	mag_g_merge(g, 0, opt->min_merge_len);
 	if (opt->flag & MAG_F_AGGRESSIVE) mag_g_pop_open(g, opt->min_elen);
 	mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
 	mag_g_merge(g, 0, opt->min_merge_len);
