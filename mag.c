@@ -531,7 +531,7 @@ int mag_g_rm_vint(mag_t *g, int min_len, int min_nsr, int min_ovlp)
 			kv_push(magv_p, a, p);
 	}
 	ks_introsort(vlt1, a.n, a.a);
-	for (i = 0; i < a.n; ++i) mag_v_del(g, a.a[i]);
+	for (i = 0; i < a.n; ++i) mag_v_transdel(g, a.a[i], min_ovlp);
 	free(a.a);
 	if (fm_verbose >= 3)
 		fprintf(stderr, "[M::%s] removed %ld internal vertices in %.3f sec (min_len=%d, min_nsr=%d)\n", __func__, a.n, cputime() - t, min_len, min_nsr);
