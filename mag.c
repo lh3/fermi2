@@ -232,7 +232,6 @@ mag_t *mag_g_read(const char *fn, const magopt_t *opt)
 				if (max < r->y) max2 = max, max = r->y;
 				else if (max2 < r->y) max2 = r->y;
 			}
-			p->max_ovlp[j] = max < 0xffff? max : 0xffff;
 			++q; // skip the tailing blank
 			if (!(opt->flag & MAG_F_READ_ORI)) {
 				double thres = (int)(max2 * opt->min_dratio0 + .499);
@@ -463,6 +462,9 @@ int mag_vh_merge_try(mag_t *g, magv_t *p, int min_merge_len) // merge p's neighb
 void mag_g_merge(mag_t *g, int rmdup, int min_merge_len)
 {
 	int i;
+	uint64_t n = 0;
+	double t;
+	t = cputime();
 	for (i = 0; i < g->v.n; ++i) { // remove multiedges; FIXME: should we do that?
 		if (rmdup) {
 			v128_rmdup(&g->v.a[i].nei[0]);
@@ -475,43 +477,86 @@ void mag_g_merge(mag_t *g, int rmdup, int min_merge_len)
 	for (i = 0; i < g->v.n; ++i) {
 		magv_t *p = &g->v.a[i];
 		if (p->len < 0) continue;
-		while (mag_vh_merge_try(g, p, min_merge_len) == 0);
+		while (mag_vh_merge_try(g, p, min_merge_len) == 0) ++n;
 		mag_v_flip(g, p);
-		while (mag_vh_merge_try(g, p, min_merge_len) == 0);
+		while (mag_vh_merge_try(g, p, min_merge_len) == 0) ++n;
 	}
+	if (fm_verbose >= 3)
+		fprintf(stderr, "[M::%s] unambiguously merged %ld pairs of vertices in %.3f sec\n", __func__, (long)n, cputime() - t);
 }
 
 /*****************************
  * Easy graph simplification *
  *****************************/
 
-void mag_g_rm_vext(mag_t *g, int min_len, int min_nsr)
+typedef magv_t *magv_p;
+
+#define mag_vlt1(a, b) ((a)->nsr < (b)->nsr || ((a)->nsr == (b)->nsr && (a)->len < (b)->len))
+KSORT_INIT(vlt1, magv_p, mag_vlt1)
+
+#define mag_vlt2(a, b) ((a)->nei[0].n + (a)->nei[1].n < (b)->nei[0].n + (b)->nei[1].n)
+KSORT_INIT(vlt2, magv_p, mag_vlt2)
+
+int mag_g_rm_vext(mag_t *g, int min_len, int min_nsr)
 {
 	int i;
+	kvec_t(magv_p) a = {0,0,0};
+	double t;
+
+	t = cputime();
 	for (i = 0; i < g->v.n; ++i) {
 		magv_t *p = &g->v.a[i];
-		if (p->len >= 0 && (p->nei[0].n == 0 || p->nei[1].n == 0) && p->len < min_len && p->nsr < min_nsr)
-			mag_v_del(g, p);
+		if (p->len < 0 || (p->nei[0].n > 0 && p->nei[1].n > 0)) continue;
+		if (p->len >= min_len || p->nsr >= min_nsr) continue;
+		kv_push(magv_p, a, p);
 	}
+	ks_introsort(vlt1, a.n, a.a);
+	for (i = 0; i < a.n; ++i) mag_v_del(g, a.a[i]);
+	free(a.a);
+	if (fm_verbose >= 3)
+		fprintf(stderr, "[M::%s] removed %ld tips in %.3f sec (min_len=%d, min_nsr=%d)\n", __func__, a.n, cputime() - t, min_len, min_nsr);
+	return a.n;
 }
 
-void mag_g_rm_vint(mag_t *g, int min_len, int min_nsr, int min_ovlp)
+int mag_g_rm_vint(mag_t *g, int min_len, int min_nsr, int min_ovlp)
 {
 	int i;
+	kvec_t(magv_p) a = {0,0,0};
+	double t;
+
+	t = cputime();
 	for (i = 0; i < g->v.n; ++i) {
 		magv_t *p = &g->v.a[i];
 		if (p->len >= 0 && p->len < min_len && p->nsr < min_nsr)
-			mag_v_transdel(g, p, min_ovlp);
+			kv_push(magv_p, a, p);
 	}
+	ks_introsort(vlt1, a.n, a.a);
+	for (i = 0; i < a.n; ++i) mag_v_del(g, a.a[i]);
+	free(a.a);
+	if (fm_verbose >= 3)
+		fprintf(stderr, "[M::%s] removed %ld internal vertices in %.3f sec (min_len=%d, min_nsr=%d)\n", __func__, a.n, cputime() - t, min_len, min_nsr);
+	return a.n;
 }
 
 void mag_g_rm_edge(mag_t *g, int min_ovlp, double min_ratio, int min_len, int min_nsr)
 {
 	int i, j, k;
+	kvec_t(magv_p) a = {0,0,0};
+	double t;
+	uint64_t n_marked = 0;
+
+	t = cputime();
 	for (i = 0; i < g->v.n; ++i) {
 		magv_t *p = &g->v.a[i];
-		if (p->len >= 0 && (p->nei[0].n == 0 || p->nei[1].n == 0) && p->len < min_len && p->nsr < min_nsr)
+		if (p->len < 0) continue;
+		if ((p->nei[0].n == 0 || p->nei[1].n == 0) && p->len < min_len && p->nsr < min_nsr)
 			continue; // skip tips
+		kv_push(magv_p, a, p);
+	}
+	ks_introsort(vlt1, a.n, a.a);
+
+	for (i = a.n - 1; i >= 0; --i) {
+		magv_t *p = a.a[i];
 		for (j = 0; j < 2; ++j) {
 			ku128_v *r = &p->nei[j];
 			int max_ovlp = min_ovlp, max_k = -1;
@@ -530,10 +575,14 @@ void mag_g_rm_edge(mag_t *g, int min_ovlp, double min_ratio, int min_len, int mi
 				if (r->a[k].y < min_ovlp || (double)r->a[k].y / max_ovlp < min_ratio) {
 					mag_eh_markdel(g, r->a[k].x, p->k[j]); // FIXME: should we check if r->a[k] is p itself?
 					edge_mark_del(r->a[k]);
+					++n_marked;
 				}
 			}
 		}
 	}
+	free(a.a);
+	if (fm_verbose >= 3)
+		fprintf(stderr, "[M::%s] removed %ld edges in %.3f sec\n", __func__, (long)n_marked, cputime() - t);
 }
 
 /*********************************************
@@ -600,7 +649,6 @@ magopt_t *mag_init_opt()
 	o->max_arc = 512;
 	o->min_dratio0 = 0.6;
 
-	o->n_iter = 3;
 	o->min_elen = 300;
 	o->min_ovlp = 0;
 	o->min_merge_len = 0;
@@ -622,23 +670,16 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 
 	if ((opt->flag & MAG_F_CLEAN) == 0) return;
 	if (g->min_ovlp < opt->min_ovlp) g->min_ovlp = opt->min_ovlp;
-	mag_g_rm_vext(g, opt->min_elen, opt->min_ensr < 3? opt->min_ensr : 3);
-	for (j = 0; j < opt->n_iter; ++j) {
-		double r = opt->n_iter == 1? 1. : .5 + .5 * j / (opt->n_iter - 1);
-		t = cputime();
-		mag_g_rm_edge(g, g->min_ovlp * r, opt->min_dratio1 * r, opt->min_elen, opt->min_ensr);
-		mag_g_rm_vext(g, opt->min_elen * r, opt->min_ensr * r > 2.? opt->min_ensr * r : 2);
-		mag_g_merge(g, 1, opt->min_merge_len);
-		if (fm_verbose >= 3)
-			fprintf(stderr, "[M::%s] finished simple graph simplification round %d in %.3f sec.\n", __func__, j+1, cputime() - t);
-	}
-	t = cputime();
-	for (j = 0; j < opt->n_iter; ++j) {
-		mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
+	for (j = 2; j <= opt->min_ensr; ++j) {
+		mag_g_rm_vext(g, opt->min_elen, j);
 		mag_g_merge(g, 0, opt->min_merge_len);
 	}
-	if (fm_verbose >= 3)
-		fprintf(stderr, "[M::%s] finished another %d rounds of tip removal in %.3f sec.\n", __func__, opt->n_iter, cputime() - t);
+	mag_g_rm_edge(g, g->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
+	mag_g_merge(g, 1, opt->min_merge_len);
+	for (j = 2; j <= opt->min_ensr; ++j) {
+		mag_g_rm_vext(g, opt->min_elen, j);
+		mag_g_merge(g, 0, opt->min_merge_len);
+	}
 	if (opt->flag & MAG_F_AGGRESSIVE) {
 		t = cputime();
 		mag_g_pop_open(g, opt->min_elen);
@@ -651,27 +692,17 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 		if (fm_verbose >= 3)
 			fprintf(stderr, "[M::%s] simplified complex bubbles in %.3f sec.\n", __func__, cputime() - t);
 	}
-	t = cputime();
 	mag_g_pop_simple(g, opt->max_bcov, opt->max_bfrac, opt->min_merge_len, opt->flag & MAG_F_AGGRESSIVE);
-	if (fm_verbose >= 3)
-		fprintf(stderr, "[M::%s] popped closed bubbles in %.3f sec.\n", __func__, cputime() - t);
-	if (opt->min_insr >= 2) {
-		t = cputime();
-		mag_g_rm_vint(g, opt->min_elen, opt->min_insr, g->min_ovlp);
+	for (j = 2; j <= opt->min_insr; ++j) {
+		mag_g_rm_vint(g, opt->min_elen, j, g->min_ovlp);
 		mag_g_rm_edge(g, g->min_ovlp, opt->min_dratio1, opt->min_elen, opt->min_ensr);
-		mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
 		mag_g_merge(g, 1, opt->min_merge_len);
-		if (fm_verbose >= 3)
-			fprintf(stderr, "[M::%s] removed interval low-cov vertices in %.3f sec.\n", __func__, cputime() - t);
-	}
-	t = cputime();
-	if (opt->flag & MAG_F_AGGRESSIVE) mag_g_pop_open(g, opt->min_elen);
-	else {
 		mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
 		mag_g_merge(g, 0, opt->min_merge_len);
 	}
-	if (fm_verbose >= 3)
-		fprintf(stderr, "[M::%s] coverage based graph cleanup in %.3f sec.\n", __func__, cputime() - t);
+	if (opt->flag & MAG_F_AGGRESSIVE) mag_g_pop_open(g, opt->min_elen);
+	mag_g_rm_vext(g, opt->min_elen, opt->min_ensr);
+	mag_g_merge(g, 0, opt->min_merge_len);
 }
 
 int main_simplify(int argc, char *argv[])
@@ -680,7 +711,7 @@ int main_simplify(int argc, char *argv[])
 	int c;
 	magopt_t *opt;
 	opt = mag_init_opt();
-	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:n:w:r:Sm:")) >= 0) {
+	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:w:r:Sm:")) >= 0) {
 		switch (c) {
 		case 'F': opt->flag |= MAG_F_NO_AMEND | MAG_F_READ_ORI; break;
 		case 'C': opt->flag |= MAG_F_CLEAN; break;
@@ -693,7 +724,6 @@ int main_simplify(int argc, char *argv[])
 		case 'e': opt->min_ensr = atoi(optarg); break;
 		case 'i': opt->min_insr = atoi(optarg); break;
 		case 'o': opt->min_ovlp = atoi(optarg); break;
-		case 'n': opt->n_iter   = atoi(optarg); break;
 		case 'R': opt->min_dratio1 = atof(optarg); break;
 		case 'w': opt->max_bcov = atof(optarg); break;
 		case 'r': opt->max_bfrac= atof(optarg); break;
@@ -714,7 +744,6 @@ int main_simplify(int argc, char *argv[])
 		fprintf(stderr, "         -i INT      minimum internal unitig read count [%d]\n", opt->min_insr);
 		fprintf(stderr, "         -o INT      minimum overlap [%d]\n", opt->min_ovlp);
 		fprintf(stderr, "         -R FLOAT    minimum relative overlap ratio [%.2f]\n", opt->min_dratio1);
-		fprintf(stderr, "         -n INT      number of iterations [%d]\n", opt->n_iter);
 		fprintf(stderr, "         -A          aggressive bubble popping\n");
 		fprintf(stderr, "         -S          skip bubble simplification\n");
 		fprintf(stderr, "         -w FLOAT    minimum coverage to keep a bubble [%.2f]\n", opt->max_bcov);

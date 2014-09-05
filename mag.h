@@ -14,7 +14,7 @@
 #define MAG_F_NO_SIMPL   0x80
 
 typedef struct {
-	int flag, max_arc, n_iter, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx, min_merge_len;
+	int flag, max_arc, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx, min_merge_len;
 	float min_dratio0, min_dratio1;
 	float max_bcov, max_bfrac;
 } magopt_t;
@@ -29,7 +29,6 @@ typedef struct { size_t n, m; ku128_t *a; } ku128_v;
 typedef struct {
 	int len, nsr;    // length; number supporting reads
 	uint32_t max_len;// allocated seq/cov size
-	uint16_t max_ovlp[2];
 	uint64_t k[2];   // bi-interval
 	ku128_v nei[2];  // neighbors
 	char *seq, *cov; // sequence and coverage
@@ -59,7 +58,7 @@ extern "C" {
 	mag_t *mag_g_read(const char *fn, const magopt_t *opt);
 	void mag_g_build_hash(mag_t *g);
 	void mag_g_print(const mag_t *g);
-	void mag_g_rm_vext(mag_t *g, int min_len, int min_nsr);
+	int mag_g_rm_vext(mag_t *g, int min_len, int min_nsr);
 	void mag_g_rm_edge(mag_t *g, int min_ovlp, double min_ratio, int min_len, int min_nsr);
 	void mag_g_merge(mag_t *g, int rmdup, int min_merge_len);
 	void mag_g_simplify_bubble(mag_t *g, int max_vtx, int max_dist);

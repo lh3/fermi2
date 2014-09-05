@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <stdio.h>
 #include "priv.h"
 #include "mag.h"
 #include "kvec.h"
@@ -175,26 +176,26 @@ void mag_g_simplify_bubble(mag_t *g, int max_vtx, int max_dist)
 	mag_g_merge(g, 0, 0);
 }
 
-void mag_vh_pop_simple(mag_t *g, uint64_t idd, float max_cov, float max_frac, int aggressive)
+int mag_vh_pop_simple(mag_t *g, uint64_t idd, float max_cov, float max_frac, int aggressive)
 {
 	magv_t *p = &g->v.a[idd>>1], *q[2];
 	ku128_v *r;
-	int i, j, k, dir[2], l[2];
+	int i, j, k, dir[2], l[2], ret = -1;
 	char *seq[2], *cov[2];
 	float n_diff, r_diff, avg[2], max_n_diff = aggressive? MAX_N_DIFF * 2. : MAX_N_DIFF;
 
-	if (p->len < 0 || p->nei[idd&1].n != 2) return; // deleted or no bubble
+	if (p->len < 0 || p->nei[idd&1].n != 2) return ret; // deleted or no bubble
 	r = &p->nei[idd&1];
 	for (j = 0; j < 2; ++j) {
 		uint64_t x;
-		if ((int64_t)r->a[j].x < 0) return;
+		if ((int64_t)r->a[j].x < 0) return ret;
 		x = mag_tid2idd(g->h, r->a[j].x);
 		dir[j] = x&1;
 		q[j] = &g->v.a[x>>1];
-		if (q[j]->nei[0].n != 1 || q[j]->nei[1].n != 1) return; // no bubble
+		if (q[j]->nei[0].n != 1 || q[j]->nei[1].n != 1) return ret; // no bubble
 		l[j] = q[j]->len - (int)(q[j]->nei[0].a->y + q[j]->nei[1].a->y);
 	}
-	if (q[0]->nei[dir[0]^1].a->x != q[1]->nei[dir[1]^1].a->x) return; // no bubble
+	if (q[0]->nei[dir[0]^1].a->x != q[1]->nei[dir[1]^1].a->x) return ret; // no bubble
 	for (j = 0; j < 2; ++j) { // set seq[] and cov[], and compute avg[]
 		if (l[j] > 0) {
 			seq[j] = malloc(l[j]<<1);
@@ -224,6 +225,7 @@ void mag_vh_pop_simple(mag_t *g, uint64_t idd, float max_cov, float max_frac, in
 			} else avg[j] = q[j]->cov[beg] - 33; // FIXME: when q[j] is contained, weird thing may happen
 		}
 	}
+	ret = 1;
 	if (l[0] > 0 && l[1] > 0) { // then do SW to compute n_diff and r_diff
 		int8_t mat[16];
 		kswr_t aln;
@@ -241,19 +243,32 @@ void mag_vh_pop_simple(mag_t *g, uint64_t idd, float max_cov, float max_frac, in
 	}
 	if (n_diff < max_n_diff || r_diff < MAX_R_DIFF) {
 		j = avg[0] < avg[1]? 0 : 1;
-		if (aggressive || (avg[j] < max_cov && avg[j] / (avg[j^1] + avg[j]) < max_frac))
+		if (aggressive || (avg[j] < max_cov && avg[j] / (avg[j^1] + avg[j]) < max_frac)) {
 			mag_v_del(g, q[j]);
+			ret = 2;
+		}
 	}
 	free(seq[0]); free(seq[1]);
+	return ret;
 }
 
 void mag_g_pop_simple(mag_t *g, float max_cov, float max_frac, int min_merge_len, int aggressive)
 {
-	int64_t i;
+	int64_t i, n_examined = 0, n_popped = 0;
+	int ret;
+	double t;
+
+	t = cputime();
 	for (i = 0; i < g->v.n; ++i) {
-		mag_vh_pop_simple(g, i<<1|0, max_cov, max_frac, aggressive);
-		mag_vh_pop_simple(g, i<<1|1, max_cov, max_frac, aggressive);
+		ret = mag_vh_pop_simple(g, i<<1|0, max_cov, max_frac, aggressive);
+		if (ret >= 1) ++n_examined;
+		if (ret >= 2) ++n_popped;
+		ret = mag_vh_pop_simple(g, i<<1|1, max_cov, max_frac, aggressive);
+		if (ret >= 1) ++n_examined;
+		if (ret >= 2) ++n_popped;
 	}
+	if (fm_verbose >= 3)
+		fprintf(stderr, "[M::%s] examined %ld bubbles and popped %ld in %.3f sec\n", __func__, (long)n_examined, (long)n_popped, cputime() - t);
 	mag_g_merge(g, 0, min_merge_len);
 }
 
@@ -344,7 +359,11 @@ void mag_v_pop_open(mag_t *g, magv_t *p, int min_elen)
 void mag_g_pop_open(mag_t *g, int min_elen)
 {
 	int64_t i;
+	double t;
+	t = cputime();
 	for (i = 0; i < g->v.n; ++i)
 		mag_v_pop_open(g, &g->v.a[i], min_elen);
+	if (fm_verbose >= 3)
+		fprintf(stderr, "[M:%s] popped open bubbles in %.3f sec\n", __func__, cputime() - t);
 	mag_g_merge(g, 0, 0);
 }
