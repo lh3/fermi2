@@ -52,18 +52,25 @@ sub mag2fmr {
 }
 
 sub unitig {
-	my %opts = (t=>4, p=>'fmdef', k=>51, e=>29, l=>61);
-	getopts('t:p:k:f:r:e:l:CK', \%opts);
+	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, e=>29, o=>-1, m=>-1);
+	getopts('t:p:k:f:r:e:l:m:CKE', \%opts);
 	die (qq/
 Usage:   fermi2.pl unitig [options] <in.fq>\n
 Options: -p STR     output prefix [$opts{p}]
-         -k INT     min overlap length during unitig construction [$opts{k}]
-         -l INT     min overlap length during graph cleaning [$opts{l}]
+         -l INT     primary read length [$opts{l}]
          -e INT     k-mer length used for error correction [$opts{e}]
+         -k INT     min overlap length during unitig construction [based on -l]
+         -o INT     min overlap length during graph cleaning [based on -l]
+         -m INT     min overlap length for unambiguous merging [based on -l]
          -t INT     number of threads [$opts{t}]
-         -C         don't cut at low-quality bases
+         -C         don't cut at low-quality bases for raw reads
+         -E         don't cut at low-quality bases for corrected reads
          -K         don't drop reads during error correction
 \n/) if (@ARGV == 0);
+
+	$opts{k} = int($opts{l} * .5)  + 1 if $opts{k} < 0;
+	$opts{m} = int($opts{l} * .75) + 1 if $opts{m} < 0;
+	$opts{o} = $opts{k} + 5;
 
 	$opts{f} ||= gwhich("fermi2");
 	$opts{r} ||= gwhich("ropebwt2");
@@ -75,17 +82,17 @@ Options: -p STR     output prefix [$opts{p}]
 	my @lines = ();
 	push(@lines, qq/PREFIX=$opts{p}/, '');
 	push(@lines, qq/EXE_FERMI2=$opts{f}/, qq/EXE_ROPEBWT2=$opts{r}/);
-	push(@lines, qq/K_UNITIG=$opts{k}/, qq/K_EC=$opts{e}/, qq/K_CLEAN=$opts{l}/);
+	push(@lines, qq/K_UNITIG=$opts{k}/, qq/K_EC=$opts{e}/, qq/K_CLEAN=$opts{o}/, qq/K_MERGE=$opts{m}/);
 	push(@lines, qq/N_THREADS=$opts{t}/, '');
 
 	push(@lines, qq/all:\$(PREFIX).mag.gz/, "");
 
 	push(@lines, qq/\$(PREFIX).raw.fmd:/);
-	my $rb2_opts = defined($opts{C})? "-drq3" : "-drq20 -x31";
+	my $opt_rb2 = defined($opts{C})? "-drq3" : '-drq20 -x `expr $(K_EC) + 2`';
 	if ($is_file) {
-		push(@lines, qq/\t\$(EXE_ROPEBWT2) $rb2_opts $ARGV[0] > \$@ 2> \$@.log/);
+		push(@lines, qq/\t\$(EXE_ROPEBWT2) $opt_rb2 $ARGV[0] > \$@ 2> \$@.log/);
 	} else {
-		push(@lines, qq/\t$ARGV[0] | \$(EXE_ROPEBWT2) $rb2_opts > \$@ 2> \$@.log/);
+		push(@lines, qq/\t$ARGV[0] | \$(EXE_ROPEBWT2) $opt_rb2 > \$@ 2> \$@.log/);
 	}
 	push(@lines, "");
 
@@ -98,8 +105,9 @@ Options: -p STR     output prefix [$opts{p}]
 	}
 	push(@lines, "");
 
+	$opt_rb2 = defined($opts{E})? "-dNCr" : '-dCrq20 -x `expr $(K_UNITIG) + 2`';
 	push(@lines, qq/\$(PREFIX).ec.fmd:\$(PREFIX).ec.fq.gz/);
-	push(@lines, qq/\t\$(EXE_ROPEBWT2) -dNCr \$< > \$@ 2> \$@.log/, "");
+	push(@lines, qq/\t\$(EXE_ROPEBWT2) $opt_rb2 \$< > \$@ 2> \$@.log/, "");
 
 	push(@lines, qq/\$(PREFIX).flt.sub:\$(PREFIX).ec.fmd/);
 	push(@lines, qq/\t\$(EXE_FERMI2) occflt -t \$(N_THREADS) \$< > \$@ 2> \$@.log/, "");
@@ -107,11 +115,11 @@ Options: -p STR     output prefix [$opts{p}]
 	push(@lines, qq/\$(PREFIX).flt.fmd:\$(PREFIX).ec.fmd \$(PREFIX).flt.sub/);
 	push(@lines, qq/\t\$(EXE_FERMI2) sub -ct \$(N_THREADS) \$< \$(PREFIX).flt.sub > \$@ 2> \$@.log/, "");
 
-	push(@lines, qq/\$(PREFIX).pre.mag.gz:\$(PREFIX).flt.fmd/);
-	push(@lines, qq/\t\$(EXE_FERMI2) assemble -l \$(K_UNITIG) -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
+	push(@lines, qq/\$(PREFIX).pre.gz:\$(PREFIX).flt.fmd/);
+	push(@lines, qq/\t\$(EXE_FERMI2) assemble -l \$(K_UNITIG) -m \$(K_MERGE) -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
 
-	push(@lines, qq/\$(PREFIX).mag.gz:\$(PREFIX).pre.mag.gz/);
-	push(@lines, qq/\t\$(EXE_FERMI2) simplify -CSo \$(K_CLEAN) \$< 2> \$@.log | gzip -1 > \$@/, "");
+	push(@lines, qq/\$(PREFIX).mag.gz:\$(PREFIX).pre.gz/);
+	push(@lines, qq/\t\$(EXE_FERMI2) simplify -CSo \$(K_CLEAN) -m \$(K_MERGE) \$< 2> \$@.log | gzip -1 > \$@/, "");
 
 	print(join("\n", @lines), "\n");
 }
