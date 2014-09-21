@@ -174,7 +174,7 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 			assert(ovlp.x[2] > 0);
 		}
 	}
-	misc[0] = misc[1] = 0;
+	misc[0] = misc[1] = -1;
 	occ[0] = occ[1] = 0;
 	ext[0] = ext[1] = 0;
 	// left extension
