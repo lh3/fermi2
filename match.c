@@ -211,7 +211,7 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 		ext[1] = i + 1 - right;
 		occ[1] = u - l;
 	}
-	if (misc[0] == 0 && misc[1] == 0) return;
+	if (ovlp.x[2] < e->mcnt[0] && misc[0] == 0 && misc[1] == 0) return;
 	if (ovlp.x[2] == occ[0] + occ[1]) return;
 	// cut sequence
 	pos = left + 1 - ext[0];
