@@ -64,13 +64,13 @@ Options: -p STR     output prefix [$opts{p}]
          -m INT     min overlap length for unambiguous merging [based on -l]
          -t INT     number of threads [$opts{t}]
          -C         don't cut at low-quality bases for raw reads
-         -E         don't cut at low-quality bases for corrected reads
+         -E         cut at low-quality bases for corrected reads
          -K         don't drop reads during error correction
 \n/) if (@ARGV == 0);
 
 	$opts{k} = int($opts{l} * .5)  + 1 if $opts{k} < 0;
 	$opts{m} = int($opts{l} * .75) + 1 if $opts{m} < 0;
-	$opts{o} = $opts{k} + 5;
+	$opts{o} = $opts{k} + 5 if $opts{o} < 0;
 
 	$opts{f} ||= gwhich("fermi2");
 	$opts{r} ||= gwhich("ropebwt2");
@@ -105,7 +105,7 @@ Options: -p STR     output prefix [$opts{p}]
 	}
 	push(@lines, "");
 
-	$opt_rb2 = defined($opts{E})? "-dNCr" : '-dCrq20 -x `expr $(K_UNITIG) + 2`';
+	$opt_rb2 = defined($opts{E})? '-dCrq20 -x `expr $(K_UNITIG) + 2`' : '-dNCr';
 	push(@lines, qq/\$(PREFIX).ec.fmd:\$(PREFIX).ec.fq.gz/);
 	push(@lines, qq/\t\$(EXE_ROPEBWT2) $opt_rb2 \$< > \$@ 2> \$@.log/, "");
 
