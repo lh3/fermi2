@@ -15,6 +15,8 @@
 typedef struct { size_t n, m; int32_t *a; } fm32s_v;
 typedef struct { size_t n, m; rldintv_t *a; } rldintv_v;
 
+static uint64_t utg_primes[] = { 123457, 234571, 345679, 456791, 567899, 0 };
+
 #define fm6_comp(a) ((a) >= 1 && (a) <= 4? 5 - (a) : (a))
 #define fm6_set_intv(e, c, ik) ((ik).x[0] = (e)->cnt[(int)(c)], (ik).x[2] = (e)->cnt[(int)(c)+1] - (e)->cnt[(int)(c)], (ik).x[1] = (e)->cnt[fm6_comp(c)], (ik).info = 0)
 
@@ -372,7 +374,7 @@ typedef struct {
 } thrdat_t;
 
 typedef struct {
-	uint64_t *used, *bend, *visited;
+	uint64_t prime, *used, *bend, *visited;
 	const rld_t *e;
 	thrdat_t *d;
 } worker_t;
@@ -381,7 +383,7 @@ static void worker(void *data, long _i, int tid)
 {
 	worker_t *w = (worker_t*)data;
 	thrdat_t *d = &w->d[tid];
-	uint64_t i = (123457ULL * _i) % w->e->mcnt[1];
+	uint64_t i = (w->prime * _i) % w->e->mcnt[1];
 	if (unitig1(&d->a, i, &d->str, &d->cov, d->z.k, d->z.nei, &d->z.nsr) >= 0) { // then we keep the unitig
 		uint64_t *p[2], x[2];
 		p[0] = w->visited + (d->z.k[0]>>6); x[0] = 1LLU<<(d->z.k[0]&0x3f);
@@ -411,6 +413,14 @@ int fm6_unitig(const rld_t *e, int min_match, int min_merge_len, int n_threads)
 	w.e       = e;
 	assert(e->mcnt[1] >= n_threads * 2);
 	w.d = calloc(n_threads, sizeof(thrdat_t));
+	w.prime = 0;
+	for (j = 0; utg_primes[j] > 0; ++j)
+		if (e->mcnt[1] % utg_primes[j] != 0) {
+			w.prime = utg_primes[j];
+			break;
+		}
+	assert(w.prime);
+	if (fm_verbose >= 3) fprintf(stderr, "[M::%s] choose prime %llu\n", __func__, (unsigned long long)w.prime);
 	for (j = 0; j < n_threads; ++j) {
 		w.d[j].a.e = e; w.d[j].a.min_match = min_match; w.d[j].a.min_merge_len = min_merge_len;
 		w.d[j].a.used = w.used; w.d[j].a.bend = w.bend;
