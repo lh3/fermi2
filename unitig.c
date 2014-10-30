@@ -381,7 +381,7 @@ static void worker(void *data, long _i, int tid)
 {
 	worker_t *w = (worker_t*)data;
 	thrdat_t *d = &w->d[tid];
-	uint64_t i = (_i * 16807) % w->e->mcnt[1];
+	uint64_t i = (123457ULL * _i) % w->e->mcnt[1];
 	if (unitig1(&d->a, i, &d->str, &d->cov, d->z.k, d->z.nei, &d->z.nsr) >= 0) { // then we keep the unitig
 		uint64_t *p[2], x[2];
 		p[0] = w->visited + (d->z.k[0]>>6); x[0] = 1LLU<<(d->z.k[0]&0x3f);
