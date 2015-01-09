@@ -96,14 +96,14 @@ Options: -p STR     output prefix [$opts{p}]
 	if ($use_bfc) {
 		push(@lines, qq/\$(PREFIX).ec.fq.gz:/);
 		if ($is_file) {
-			push(@lines, qq/\t\$(EXE_BFC) -s $opts{s} -t \$(N_THREADS) $ARGV[0] 2> \$@.log | gzip -1 > \$@/);
+			push(@lines, qq/\t\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) $ARGV[0] 2> \$@.log | gzip -1 > \$@/);
 		} else {
-			push(@lines, qq/\tbash -c '\$(EXE_BFC) -s $opts{s} -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/);
+			push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/);
 		}
 		push(@lines, "");
 
 		push(@lines, qq/\$(PREFIX).flt.fa.gz:\$(PREFIX).ec.fq.gz/);
-		push(@lines, qq/\t\$(EXE_BFC) -1Qs $opts{s} -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
+		push(@lines, qq/\t\$(EXE_BFC) -1Qs \$(GENOME_SIZE) -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
 
 		push(@lines, qq/\$(PREFIX).flt.fmd:\$(PREFIX).flt.fa.gz/);
 		push(@lines, qq/\t\$(EXE_ROPEBWT2) -dNCr \$< > \$@ 2> \$@.log/, "");
