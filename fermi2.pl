@@ -204,10 +204,10 @@ sub gwhich {
         return $progname;
     } elsif (defined($addtional_path) && ($tmp = &which($progname, $addtional_path))) {
         return $tmp;
-    } elsif (-x "./$progname") {
-        return "./$progname";
     } elsif (defined($dirname) && (-x "$dirname/$progname")) {
         return "$dirname/$progname";
+    } elsif (-x "./$progname") {
+        return "./$progname";
     } elsif (($tmp = &which($progname))) {
         return $tmp;
     } else {
@@ -217,7 +217,7 @@ sub gwhich {
 
 sub dirname {
 	my $prog = shift;
-	return '.' if (!($prog =~ /\//));
-	$prog =~ s/\/[^\s\/]$//g;
+	return '.' unless ($prog =~ /\//);
+	$prog =~ s/\/[^\s\/]+$//g;
 	return $prog;
 }
