@@ -718,8 +718,9 @@ void mag_v_trim_open(mag_t *g, magv_t *v, int trim_len)
 		tl[j] = v->len - max_ovlp < trim_len? v->len - max_ovlp : trim_len;
 	}
 	if (v->nei[0].n == 0) {
-		memmove(v->seq, v->seq + tl[0], v->len - tl[0]);
 		v->len -= tl[0];
+		memmove(v->seq, v->seq + tl[0], v->len);
+		memmove(v->cov, v->cov + tl[0], v->len);
 	}
 	if (v->nei[1].n == 0) v->len -= tl[1];
 }
