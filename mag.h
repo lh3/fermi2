@@ -14,7 +14,7 @@
 #define MAG_F_NO_SIMPL   0x80
 
 typedef struct {
-	int flag, max_arc, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx, min_merge_len;
+	int flag, max_arc, min_ovlp, min_elen, min_ensr, min_insr, max_bdist, max_bvtx, min_merge_len, trim_len;
 	float min_dratio0, min_dratio1;
 	float max_bcov, max_bfrac;
 } magopt_t;

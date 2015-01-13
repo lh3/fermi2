@@ -648,6 +648,7 @@ magopt_t *mag_init_opt()
 	o->flag = MAG_F_READnMERGE;
 	o->max_arc = 512;
 	o->min_dratio0 = 0.6;
+	o->trim_len = 0;
 
 	o->min_elen = 300;
 	o->min_ovlp = 0;
@@ -701,13 +702,42 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 	mag_g_merge(g, 0, opt->min_merge_len);
 }
 
+void mag_v_trim_open(mag_t *g, magv_t *v, int trim_len)
+{
+	int i, j, tl[2];
+	if (v->nei[0].n > 0 && v->nei[1].n > 0) return; // no open end; do nothing
+	if (v->nei[0].n == 0 && v->nei[1].n == 0 && v->len < trim_len * 3) { // disconnected short vertex
+		mag_v_del(g, v);
+		return;
+	}
+	for (j = 0; j < 2; ++j) {
+		ku128_v *r = &v->nei[!j];
+		int max_ovlp = 0;
+		for (i = 0; i < r->n; ++i)
+			max_ovlp = max_ovlp > r->a[i].y? max_ovlp : r->a[i].y;
+		tl[j] = v->len - max_ovlp < trim_len? v->len - max_ovlp : trim_len;
+	}
+	if (v->nei[0].n == 0) {
+		memmove(v->seq, v->seq + tl[0], v->len - tl[0]);
+		v->len -= tl[0];
+	}
+	if (v->nei[1].n == 0) v->len -= tl[1];
+}
+
+void mag_g_trim_open(mag_t *g, const magopt_t *opt)
+{
+	int i;
+	for (i = 0; i < g->v.n; ++i)
+		mag_v_trim_open(g, &g->v.a[i], opt->trim_len);
+}
+
 int main_simplify(int argc, char *argv[])
 {
 	mag_t *g;
 	int c;
 	magopt_t *opt;
 	opt = mag_init_opt();
-	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:w:r:Sm:")) >= 0) {
+	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:w:r:Sm:T:")) >= 0) {
 		switch (c) {
 		case 'F': opt->flag |= MAG_F_NO_AMEND | MAG_F_READ_ORI; break;
 		case 'C': opt->flag |= MAG_F_CLEAN; break;
@@ -724,6 +754,7 @@ int main_simplify(int argc, char *argv[])
 		case 'w': opt->max_bcov = atof(optarg); break;
 		case 'r': opt->max_bfrac= atof(optarg); break;
 		case 'm': opt->min_merge_len = atoi(optarg); break;
+		case 'T': opt->trim_len = atoi(optarg); break;
 		}
 	}
 	if (argc == optind) {
@@ -743,12 +774,14 @@ int main_simplify(int argc, char *argv[])
 		fprintf(stderr, "         -A          aggressive bubble popping\n");
 		fprintf(stderr, "         -S          skip bubble simplification\n");
 		fprintf(stderr, "         -w FLOAT    minimum coverage to keep a bubble [%.2f]\n", opt->max_bcov);
-		fprintf(stderr, "         -r FLOAT    minimum fraction to keep a bubble [%.2f]\n", opt->max_bfrac);
+		fprintf(stderr, "         -r FLOAT    minimum fraction to keep a bubble [%.2f]\n\n", opt->max_bfrac);
+		fprintf(stderr, "         -T INT      trim INT-bp from an open end [0]\n");
 		fprintf(stderr, "\n");
 		return 1;
 	}
 	g = mag_g_read(argv[optind], opt);
 	mag_g_clean(g, opt);
+	mag_g_trim_open(g, opt);
 	mag_g_print(g);
 	mag_g_destroy(g);
 	free(opt);
