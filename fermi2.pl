@@ -64,12 +64,11 @@ Options: -p STR     output prefix [$opts{p}]
          -o INT     min overlap length during graph cleaning [based on -l]
          -m INT     min overlap length for unambiguous merging [based on -l]
          -t INT     number of threads [$opts{t}]
-
-         -e INT     fermi2 ec k-mer length (0 to use bfc) [$opts{e}]
-         -K         don't drop reads during error correction
-         -C         don't cut at low-quality bases for raw reads
-         -E         cut at low-quality bases for corrected reads
 \n/) if (@ARGV == 0);
+#         -e INT     fermi2 ec k-mer length (0 to use bfc) [$opts{e}]
+#         -K         don't drop reads during error correction
+#         -C         don't cut at low-quality bases for raw reads
+#         -E         cut at low-quality bases for corrected reads
 
 	my $use_bfc = ($opts{e} == 0);
 
