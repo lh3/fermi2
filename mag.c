@@ -649,6 +649,7 @@ magopt_t *mag_init_opt()
 	o->max_arc = 512;
 	o->min_dratio0 = 0.6;
 	o->trim_len = 0;
+	o->trim_depth = 6;
 
 	o->min_elen = 300;
 	o->min_ovlp = 0;
@@ -702,7 +703,7 @@ void mag_g_clean(mag_t *g, const magopt_t *opt)
 	mag_g_merge(g, 0, opt->min_merge_len);
 }
 
-void mag_v_trim_open(mag_t *g, magv_t *v, int trim_len)
+void mag_v_trim_open(mag_t *g, magv_t *v, int trim_len, int trim_depth)
 {
 	int i, j, tl[2];
 	if (v->nei[0].n > 0 && v->nei[1].n > 0) return; // no open end; do nothing
@@ -719,26 +720,34 @@ void mag_v_trim_open(mag_t *g, magv_t *v, int trim_len)
 	}
 	if (v->nei[0].n == 0) {
 		v->len -= tl[0];
+		for (i = 0; i < tl[0] && v->cov[i] - 33 < trim_depth; ++i);
+		tl[0] = i;
 		memmove(v->seq, v->seq + tl[0], v->len);
 		memmove(v->cov, v->cov + tl[0], v->len);
 	}
-	if (v->nei[1].n == 0) v->len -= tl[1];
+	if (v->nei[1].n == 0) {
+		for (i = v->len - 1; i >= v->len - tl[1] && v->cov[i] - 33 < trim_depth; --i);
+		tl[1] = v->len - 1 - i;
+		v->len -= tl[1];
+	}
 }
 
 void mag_g_trim_open(mag_t *g, const magopt_t *opt)
 {
 	int i;
+	if (opt->trim_len == 0) return;
 	for (i = 0; i < g->v.n; ++i)
-		mag_v_trim_open(g, &g->v.a[i], opt->trim_len);
+		mag_v_trim_open(g, &g->v.a[i], opt->trim_len, opt->trim_depth);
 }
 
 int main_simplify(int argc, char *argv[])
 {
 	mag_t *g;
 	int c;
+	char *s;
 	magopt_t *opt;
 	opt = mag_init_opt();
-	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:w:r:Sm:T:")) >= 0) {
+	while ((c = getopt(argc, argv, "ON:d:CFAl:e:i:o:R:w:r:Sm:T:D:")) >= 0) {
 		switch (c) {
 		case 'F': opt->flag |= MAG_F_NO_AMEND | MAG_F_READ_ORI; break;
 		case 'C': opt->flag |= MAG_F_CLEAN; break;
@@ -755,28 +764,32 @@ int main_simplify(int argc, char *argv[])
 		case 'w': opt->max_bcov = atof(optarg); break;
 		case 'r': opt->max_bfrac= atof(optarg); break;
 		case 'm': opt->min_merge_len = atoi(optarg); break;
-		case 'T': opt->trim_len = atoi(optarg); break;
+		case 'T':
+			opt->trim_len = strtol(optarg, &s, 10);
+			if (*s == ',' || *s == ':' || *s == ';')
+				opt->trim_depth = strtol(s + 1, &s, 10);
+			break;
 		}
 	}
 	if (argc == optind) {
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   fermi2 simplify [options] <in.mag>\n\n");
-		fprintf(stderr, "Options: -N INT      read maximum INT neighbors per node [%d]\n", opt->max_arc);
-		fprintf(stderr, "         -O          read the graph without modifications\n");
-		fprintf(stderr, "         -F          don't attempt to fix erroneous edges (force -O)\n");
-		fprintf(stderr, "         -m INT      minimum overlap to merge [%d]\n", opt->min_merge_len);
-		fprintf(stderr, "         -d FLOAT    drop a neighbor if relative overlap ratio below FLOAT [%.2f]\n\n", opt->min_dratio0); 
-		fprintf(stderr, "         -C          clean the graph\n");
-		fprintf(stderr, "         -l INT      minimum tip length [%d]\n", opt->min_elen);
-		fprintf(stderr, "         -e INT      minimum tip read count [%d]\n", opt->min_ensr);
-		fprintf(stderr, "         -i INT      minimum internal unitig read count [%d]\n", opt->min_insr);
-		fprintf(stderr, "         -o INT      minimum overlap [%d]\n", opt->min_ovlp);
-		fprintf(stderr, "         -R FLOAT    minimum relative overlap ratio [%.2f]\n", opt->min_dratio1);
-		fprintf(stderr, "         -A          aggressive bubble popping\n");
-		fprintf(stderr, "         -S          skip bubble simplification\n");
-		fprintf(stderr, "         -w FLOAT    minimum coverage to keep a bubble [%.2f]\n", opt->max_bcov);
-		fprintf(stderr, "         -r FLOAT    minimum fraction to keep a bubble [%.2f]\n\n", opt->max_bfrac);
-		fprintf(stderr, "         -T INT      trim INT-bp from an open end [0]\n");
+		fprintf(stderr, "Options: -N INT         read maximum INT neighbors per node [%d]\n", opt->max_arc);
+		fprintf(stderr, "         -O             read the graph without modifications\n");
+		fprintf(stderr, "         -F             don't attempt to fix erroneous edges (force -O)\n");
+		fprintf(stderr, "         -m INT         minimum overlap to merge [%d]\n", opt->min_merge_len);
+		fprintf(stderr, "         -d FLOAT       drop a neighbor if relative overlap ratio below FLOAT [%.2f]\n\n", opt->min_dratio0); 
+		fprintf(stderr, "         -C             clean the graph\n");
+		fprintf(stderr, "         -l INT         minimum tip length [%d]\n", opt->min_elen);
+		fprintf(stderr, "         -e INT         minimum tip read count [%d]\n", opt->min_ensr);
+		fprintf(stderr, "         -i INT         minimum internal unitig read count [%d]\n", opt->min_insr);
+		fprintf(stderr, "         -o INT         minimum overlap [%d]\n", opt->min_ovlp);
+		fprintf(stderr, "         -R FLOAT       minimum relative overlap ratio [%.2f]\n", opt->min_dratio1);
+		fprintf(stderr, "         -A             aggressive bubble popping\n");
+		fprintf(stderr, "         -S             skip bubble simplification\n");
+		fprintf(stderr, "         -w FLOAT       minimum coverage to keep a bubble [%.2f]\n", opt->max_bcov);
+		fprintf(stderr, "         -r FLOAT       minimum fraction to keep a bubble [%.2f]\n\n", opt->max_bfrac);
+		fprintf(stderr, "         -T INT1[,INT2] trim INT1-bp from an open end if DP below INT2 [%d,%d]\n", opt->trim_len, opt->trim_depth);
 		fprintf(stderr, "\n");
 		return 1;
 	}
