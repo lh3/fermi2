@@ -52,27 +52,40 @@ sub mag2fmr {
 }
 
 sub unitig {
-	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, e=>0, T=>51, o=>-1, m=>-1, s=>'100m');
-	getopts('t:p:k:f:r:c:e:l:m:CKEbs:T:', \%opts);
+	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, T=>63, o=>-1, m=>-1, s=>'100m', e=>'bfc,3G');
+	getopts('t:p:k:f:r:c:e:l:m:CKxEbs:T:M:B:', \%opts);
 	die (qq/
 Usage:   fermi2.pl unitig [options] <in.fq>\n
-Options: -p STR     output prefix [$opts{p}]
-         -s STR     approximate genome size (for bfc) [$opts{s}]
-         -l INT     primary read length [$opts{l}]
-         -T INT     use INT-mer for post-trimming\/filtering [$opts{T}]
-         -k INT     min overlap length during unitig construction [based on -l]
-         -o INT     min overlap length during graph cleaning [based on -l]
-         -m INT     min overlap length for unambiguous merging [based on -l]
-         -t INT     number of threads [$opts{t}]
+Options: -p STR         output prefix [$opts{p}]
+         -s STR         approximate genome size (for bfc) [$opts{s}]
+         -l INT         primary read length [$opts{l}]
+         -T INT         use INT-mer for post-trimming\/filtering [$opts{T}]
+         -e STR[,PAR]   error correction algorithm and the key parameter [$opts{e}]
+                        bfc[,3G]: bfc for error correction; PAR is the genotype size
+                        kmc[,55]: bfc-kmc for error correction; PAR is the k-mer length
+                        fermi2[,29]: fermi2 for error correction; PAR the k-mer length
+         -k INT         min overlap length during unitig construction [based on -l]
+         -o INT         min overlap length during graph cleaning [based on -l]
+         -m INT         min overlap length for unambiguous merging [based on -l]
+         -t INT         number of threads [$opts{t}]
 \n/) if (@ARGV == 0);
-#         -e INT     fermi2 ec k-mer length (0 to use bfc) [$opts{e}]
 #         -K         don't drop reads during error correction
 #         -C         don't cut at low-quality bases for raw reads
-#         -E         cut at low-quality bases for corrected reads
 
-	my $use_bfc = ($opts{e} == 0);
+	# set error correction algorithm and parameter
+	my ($ec_par, $ec_algo);
+	if ($opts{e} =~ /^kmc(,(\d+)?)/) {
+		$ec_algo = "kmc";
+		$ec_par = defined($2)? $2 : 55;
+	} elsif ($opts{e} =~ /^bfc(,(\S+)?)/) {
+		$ec_algo = "bfc";
+		$ec_par = defined($2)? $2 : '3G';
+	} elsif ($opts{e} =~ /^fermi2(,(\d+)?)/) {
+		$ec_algo = "fermi2";
+		$ec_par = defined($2)? $2 : 29;
+	}
 
-	if (!$use_bfc) {
+	if ($ec_algo ne 'fermi2') {
 		delete($opts{K}); delete($opts{C}); delete($opts{E});
 	}
 
@@ -83,57 +96,64 @@ Options: -p STR     output prefix [$opts{p}]
 	$opts{f} ||= gwhich("fermi2");
 	$opts{r} ||= gwhich("ropebwt2");
 	$opts{c} ||= gwhich("bfc");
+	$opts{M} ||= gwhich("kmc");
+	$opts{B} ||= gwhich("bfc-kmc");
 	die("[E::main] failed to find the 'fermi2' executable") unless (-x $opts{f});
 	die("[E::main] failed to find the 'ropebwt2' executable") unless (-x $opts{r});
 	die("[E::main] failed to find the 'bfc' executable") unless (-x $opts{c});
 
-	my $is_file = (-f $ARGV[0]);
-
 	my @lines = ();
 	push(@lines, qq/PREFIX=$opts{p}/, '');
-	push(@lines, qq/EXE_FERMI2=$opts{f}/, qq/EXE_ROPEBWT2=$opts{r}/, qq/EXE_BFC=$opts{c}/);
-	push(@lines, qq/K_UNITIG=$opts{k}/, qq/K_EC=$opts{e}/, qq/K_CLEAN=$opts{o}/, qq/K_TRIM=$opts{T}/, qq/K_MERGE=$opts{m}/, qq/GENOME_SIZE=$opts{s}/);
+	push(@lines, qq/EXE_FERMI2=$opts{f}/, qq/EXE_ROPEBWT2=$opts{r}/);
+	if ($ec_algo eq 'bfc') {
+		push(@lines, qq/EXE_BFC=$opts{c}/, qq/GENOME_SIZE=$ec_par/);
+	} elsif ($ec_algo eq 'kmc') {
+		push(@lines, qq/EXE_BFC=$opts{B}/, qq/EXE_KMC=$opts{M}/, qq/K_EC=$ec_par/);
+	}
+	push(@lines, qq/K_UNITIG=$opts{k}/, qq/K_CLEAN=$opts{o}/, qq/K_TRIM=$opts{T}/, qq/K_MERGE=$opts{m}/);
 	push(@lines, qq/N_THREADS=$opts{t}/, "");
-	push(@lines, qq/INPUT=$ARGV[0]/, "") unless ($is_file);
+	push(@lines, (-f $ARGV[0])? qq/INPUT=cat $ARGV[0]/ : qq/INPUT=$ARGV[0]/, "");
 
 	push(@lines, qq/all:\$(PREFIX).mag.gz/, "");
 
-	if ($use_bfc) {
-		push(@lines, qq/\$(PREFIX).ec.fq.gz:/);
-		if ($is_file) {
-			push(@lines, qq/\t\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) $ARGV[0] 2> \$@.log | gzip -1 > \$@/);
+	if ($ec_algo eq "bfc" || $ec_algo eq "kmc") {
+		if ($ec_algo eq "bfc") {
+			push(@lines, qq/\$(PREFIX).ec.fq.gz:/);
+			push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/, "");
+
+			push(@lines, qq/\$(PREFIX).flt.fq.gz:\$(PREFIX).ec.fq.gz/);
+			push(@lines, qq/\t\$(EXE_BFC) -1s \$(GENOME_SIZE) -k \$(K_TRIM) -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
 		} else {
-			push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/);
+			my $kmc_base = "\$(PREFIX).raw";
+			push(@lines, qq/$kmc_base.kmc_pre $kmc_base.kmc_suf:/);
+			push(@lines, qq/\tmkdir -p \$(PREFIX).kmctmp; \$(INPUT) | \$(EXE_KMC) -k$ec_par -t\$(N_THREADS) \/dev\/stdin $kmc_base \$(PREFIX).kmctmp > $kmc_base.log 2>&1/, "");
+
+			push(@lines, qq/\$(PREFIX).ec.fq.gz:$kmc_base.kmc_pre $kmc_base.kmc_suf/);
+			push(@lines, qq/\t\$(INPUT) | \$(EXE_BFC) -t\$(N_THREADS) $kmc_base - 2> \$@.log | gzip -1 > \$@/, "");
+
+			$kmc_base = "\$(PREFIX).ec";
+			push(@lines, qq/$kmc_base.kmc_pre $kmc_base.kmc_suf:\$(PREFIX).ec.fq.gz/);
+			push(@lines, qq/\t\$(EXE_KMC) -k\$(K_TRIM) -t\$(N_THREADS) \$< $kmc_base \$(PREFIX).kmctmp > $kmc_base.log 2>&1/, "");
+
+			push(@lines, qq/\$(PREFIX).flt.fq.gz:\$(PREFIX).ec.fq.gz $kmc_base.kmc_pre $kmc_base.kmc_suf/);
+			push(@lines, qq/\t\$(EXE_BFC) -Tt \$(N_THREADS) $kmc_base \$< 2> \$@.log | gzip -1 > \$@/, "");
 		}
-		push(@lines, "");
 
-		push(@lines, qq/\$(PREFIX).flt.fa.gz:\$(PREFIX).ec.fq.gz/);
-		push(@lines, qq/\t\$(EXE_BFC) -1Qs \$(GENOME_SIZE) -k \$(K_TRIM) -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
-
-		push(@lines, qq/\$(PREFIX).flt.fmd:\$(PREFIX).flt.fa.gz/);
+		push(@lines, qq/\$(PREFIX).flt.fmd:\$(PREFIX).flt.fq.gz/);
 		push(@lines, qq/\t\$(EXE_ROPEBWT2) -dNCr \$< > \$@ 2> \$@.log/, "");
 	} else {
 		push(@lines, qq/\$(PREFIX).raw.fmd:/);
 		my $opt_rb2 = defined($opts{C})? "-drq3" : '-drq20 -x `expr $(K_EC) + 2`';
-		if ($is_file) {
-			push(@lines, qq/\t\$(EXE_ROPEBWT2) $opt_rb2 $ARGV[0] > \$@ 2> \$@.log/);
-		} else {
-			push(@lines, qq/\t$ARGV[0] | \$(EXE_ROPEBWT2) $opt_rb2 > \$@ 2> \$@.log/);
-		}
+		push(@lines, qq/\t\$(INPUT) | \$(EXE_ROPEBWT2) $opt_rb2 > \$@ 2> \$@.log/);
 		push(@lines, "");
 
 		my $opt_ec = defined($opts{K})? "" : "-D";
 		push(@lines, qq/\$(PREFIX).ec.fq.gz:\$(PREFIX).raw.fmd/);
-		if ($is_file) {
-			push(@lines, qq/\t\$(EXE_FERMI2) correct $opt_ec -t \$(N_THREADS) -k \$(K_EC) \$< $ARGV[0] 2> \$@.log | gzip -1 > \$@/);
-		} else {
-			push(@lines, qq/\t$ARGV[0] | \$(EXE_FERMI2) correct $opt_ec -t \$(N_THREADS) -k \$(K_EC) \$< \/dev\/stdin 2> \$@.log | gzip -1 > \$@/);
-		}
+		push(@lines, qq/\t\$(INPUT) | \$(EXE_FERMI2) correct $opt_ec -t \$(N_THREADS) -k \$(K_EC) \$< \/dev\/stdin 2> \$@.log | gzip -1 > \$@/);
 		push(@lines, "");
 
-		$opt_rb2 = defined($opts{E})? '-dCrq20 -x `expr $(K_UNITIG) + 2`' : '-dNCr';
 		push(@lines, qq/\$(PREFIX).ec.fmd:\$(PREFIX).ec.fq.gz/);
-		push(@lines, qq/\t\$(EXE_ROPEBWT2) $opt_rb2 \$< > \$@ 2> \$@.log/, "");
+		push(@lines, qq/\t\$(EXE_ROPEBWT2) -dNCr \$< > \$@ 2> \$@.log/, "");
 
 		push(@lines, qq/\$(PREFIX).flt.sub:\$(PREFIX).ec.fmd/);
 		push(@lines, qq/\t\$(EXE_FERMI2) occflt -t \$(N_THREADS) -K \$(K_TRIM) \$< > \$@ 2> \$@.log/, "");
