@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use Getopt::Std;
 
+# r181
+
 die (qq/
 Usage:   fermi2.pl <command> [arguments]\n
 Command: unitig     generate Makefile for unitig assembly
@@ -52,12 +54,13 @@ sub mag2fmr {
 }
 
 sub unitig {
-	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, T=>61, o=>-1, m=>-1, s=>'100m');
-	getopts('t:p:k:f:r:c:l:m:s:T:', \%opts);
+	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, T=>51, o=>-1, m=>-1, s=>'100m');
+	getopts('t:p:k:f:r:c:l:m:s:T:2', \%opts);
 	die (qq/
 Usage:   fermi2.pl unitig [options] <in.fq>\n
 Options: -p STR    output prefix [$opts{p}]
-         -s STR    approximate genome size (for bfc) [$opts{s}]
+         -s STR    approximate genome size [$opts{s}]
+         -2        2-pass error correction
          -l INT    primary read length [$opts{l}]
          -T INT    use INT-mer for post-trimming\/filtering [$opts{T}]
          -k INT    min overlap length during unitig construction [based on -l]
@@ -76,8 +79,8 @@ Options: -p STR    output prefix [$opts{p}]
 	} else {
 		$gsize = $opts{s};
 	}
-	$k_ec1 = int(log($gsize) / log(2) * 1.7) + 1;
-	$k_ec2 = int(log($gsize) / log(2)) + 1;
+	$k_ec1 = int(log($gsize) / log(2)) + 1;
+	$k_ec2 = int(log($gsize) / log(2) * 1.7) + 1;
 	++$k_ec1 if ($k_ec1&1) == 0;
 	++$k_ec2 if ($k_ec2&1) == 0;
 
@@ -95,7 +98,8 @@ Options: -p STR    output prefix [$opts{p}]
 	my @lines = ();
 	push(@lines, qq/PREFIX=$opts{p}/, '');
 	push(@lines, qq/EXE_FERMI2=$opts{f}/, qq/EXE_ROPEBWT2=$opts{r}/);
-	push(@lines, qq/EXE_BFC=$opts{c}/, qq/GENOME_SIZE=$opts{s}/, qq/K_EC1=$k_ec1/, qq/K_EC2=$k_ec2/);
+	push(@lines, qq/EXE_BFC=$opts{c}/, qq/GENOME_SIZE=$opts{s}/);
+	push(@lines, qq/K_EC1=$k_ec1/, qq/K_EC2=$k_ec2/) if defined($opts{2});
 	push(@lines, qq/K_UNITIG=$opts{k}/, qq/K_CLEAN=$opts{o}/, qq/K_TRIM=$opts{T}/, qq/K_MERGE=$opts{m}/);
 	push(@lines, qq/N_THREADS=$opts{t}/, "");
 	push(@lines, (-f $ARGV[0])? qq/INPUT=cat $ARGV[0]/ : qq/INPUT=$ARGV[0]/, "");
@@ -103,9 +107,13 @@ Options: -p STR    output prefix [$opts{p}]
 	push(@lines, qq/all:\$(PREFIX).mag.gz/, "");
 
 	push(@lines, qq/\$(PREFIX).ec.fq.gz:/);
-	push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE)  -k \$(K_EC1) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$(PREFIX).ec1.fq.gz'; \\/);
-	push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -Rk \$(K_EC2) -t \$(N_THREADS) <(\$(INPUT)) \$(PREFIX).ec1.fq.gz 2>> \$@.log | gzip -1 > \$\@'; \\/);
-	push(@lines, qq/\trm -f \$(PREFIX).ec1.fq.gz/, "");
+	if (defined $opts{2}) {
+		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE)  -k \$(K_EC1) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$(PREFIX).ec1.fq.gz'; \\/);
+		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -Rk \$(K_EC2) -t \$(N_THREADS) <(\$(INPUT)) \$(PREFIX).ec1.fq.gz 2>> \$@.log | gzip -1 > \$\@'; \\/);
+		push(@lines, qq/\trm -f \$(PREFIX).ec1.fq.gz/, "");
+	} else {
+		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/, "");
+	}
 
 	push(@lines, qq/\$(PREFIX).flt.fq.gz:\$(PREFIX).ec.fq.gz/);
 	push(@lines, qq/\t\$(EXE_BFC) -1s \$(GENOME_SIZE) -k \$(K_TRIM) -t \$(N_THREADS) \$< 2> \$@.log | gzip -1 > \$@/, "");
