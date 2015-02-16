@@ -55,7 +55,7 @@ sub mag2fmr {
 
 sub unitig {
 	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, T=>51, o=>-1, m=>-1, s=>'100m');
-	getopts('t:p:k:f:r:c:l:m:s:T:2', \%opts);
+	getopts('t:p:k:f:r:c:l:m:s:T:2E', \%opts);
 	die (qq/
 Usage:   fermi2.pl unitig [options] <in.fq>\n
 Options: -p STR    output prefix [$opts{p}]
@@ -67,6 +67,7 @@ Options: -p STR    output prefix [$opts{p}]
          -o INT    min overlap length during graph cleaning [based on -l]
          -m INT    min overlap length for unambiguous merging [based on -l]
          -t INT    number of threads [$opts{t}]
+         -E        don't apply error correction
 \n/) if (@ARGV == 0);
 
 	# get k-mer length for error correction
@@ -107,7 +108,9 @@ Options: -p STR    output prefix [$opts{p}]
 	push(@lines, qq/all:\$(PREFIX).mag.gz/, "");
 
 	push(@lines, qq/\$(PREFIX).ec.fq.gz:/);
-	if (defined $opts{2}) {
+	if (defined $opts{E}) {
+		push(@lines, (-f $ARGV[0])? qq/\tln -s $ARGV[0] \$@/ : qq/\t$(INPUT) | gzip -1 > $@/, "");
+	} elsif (defined $opts{2}) {
 		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE)  -k \$(K_EC1) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$(PREFIX).ec1.fq.gz'; \\/);
 		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -Rk \$(K_EC2) -t \$(N_THREADS) <(\$(INPUT)) \$(PREFIX).ec1.fq.gz 2>> \$@.log | gzip -1 > \$\@'; \\/);
 		push(@lines, qq/\trm -f \$(PREFIX).ec1.fq.gz/, "");
