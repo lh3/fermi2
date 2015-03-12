@@ -54,7 +54,7 @@ sub mag2fmr {
 }
 
 sub unitig {
-	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, T=>51, o=>-1, m=>-1, s=>'100m');
+	my %opts = (t=>4, p=>'fmdef', l=>101, k=>-1, T=>61, o=>-1, m=>-1, s=>'100m');
 	getopts('t:p:k:f:r:c:l:m:s:T:2E', \%opts);
 	die (qq/
 Usage:   fermi2.pl unitig [options] <in.fq>\n
@@ -69,6 +69,8 @@ Options: -p STR    output prefix [$opts{p}]
          -t INT    number of threads [$opts{t}]
          -E        don't apply error correction
 \n/) if (@ARGV == 0);
+
+	die("ERROR: fermi2 doesn't work well with reads shorter than 70bp.\n") if ($opts{l} < 70);
 
 	# get k-mer length for error correction
 	my ($gsize, $k_ec1, $k_ec2);
@@ -85,7 +87,7 @@ Options: -p STR    output prefix [$opts{p}]
 	++$k_ec1 if ($k_ec1&1) == 0;
 	++$k_ec2 if ($k_ec2&1) == 0;
 
-	$opts{k} = int($opts{l} * .5)  + 1 if $opts{k} < 0;
+	$opts{k} = 51 + int(($opts{l} - 101) * .4 + .499) if $opts{k} < 0;
 	$opts{m} = int($opts{l} * .75) + 1 if $opts{m} < 0;
 	$opts{o} = $opts{k} + 5 if $opts{o} < 0;
 
