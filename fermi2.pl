@@ -38,7 +38,7 @@ sub mag2fmr {
 		push(@lines, qq/$pre.fmr:$fn $prev/);
 		my $opt_rb2 = $prev? "-bRLi $prev" : "-bRL";
 		$opt_rb2 .= " -M $opts{M}";
-		my $flt = qq/perl -wane 'if(\$\$.%2){\$\$n=\$\$F[1]}elsif(!defined(\$\$n)||\$\$n>=$opts{n}){print}'/;
+		my $flt = qq/perl -ane 'if(\$\$.%2){\$\$n=\$\$F[1]}elsif(!defined(\$\$n)||\$\$n>=$opts{n}){print}'/;
 		my $srt = qq/rev | tr "ACGT" "TGCA" | sort -S15G | tr "ACGT" "TGCA" | rev | $opts{r} $opt_rb2 > \$@ 2> \$@.log/;
 		push(@lines, qq/\t($opts{s} seq -aUl0 \$<; $opts{s} seq -raUl0 \$<) | $flt | $srt/);
 		$prev = "$pre.fmr";
