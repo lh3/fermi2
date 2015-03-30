@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Getopt::Std;
 
-# r184
+# r188
 
 die (qq/
 Usage:   fermi2.pl <command> [arguments]\n
@@ -20,9 +20,9 @@ elsif ($cmd eq 'utglog') { &utglog(); }
 else { die("ERROR: unknown command\n"); }
 
 sub mag2fmr {
-	my %opts = (n=>5, M=>10000);
-	getopts('i:s:r:n:M:', \%opts);
-	die (qq/fermi2.pl mag2fmr [-i in.fmr] [-n $opts{n}] <file1.mag.gz> [...]\n/) if @ARGV == 0;
+	my %opts = (l=>102, d=>3, M=>10000);
+	getopts('ai:s:r:l:d:M:', \%opts);
+	die (qq/fermi2.pl mag2fmr [-a] [-i in.fmr] <file1.mag.gz> [...]\n/) if @ARGV == 0;
 
 	$opts{s} ||= gwhich("seqtk");
 	$opts{r} ||= gwhich("ropebwt2");
@@ -38,9 +38,15 @@ sub mag2fmr {
 		push(@lines, qq/$pre.fmr:$fn $prev/);
 		my $opt_rb2 = $prev? "-bRLi $prev" : "-bRL";
 		$opt_rb2 .= " -M $opts{M}";
-		my $flt = qq/perl -ane 'if(\$\$.%2){\$\$n=\$\$F[1]}elsif(!defined(\$\$n)||\$\$n>=$opts{n}){print}'/;
-		my $srt = qq/rev | tr "ACGT" "TGCA" | sort -S15G | tr "ACGT" "TGCA" | rev | $opts{r} $opt_rb2 > \$@ 2> \$@.log/;
-		push(@lines, qq/\t($opts{s} seq -aUl0 \$<; $opts{s} seq -raUl0 \$<) | $flt | $srt/);
+		my $tmp = qq/awk 'NR%2==0'|rev|tr "ACGT" "TGCA"|sort -S15G|tr "ACGT" "TGCA"|rev|$opts{r} $opt_rb2 > \$@ 2> \$@.log/;
+		if (!defined($opts{a})) {
+			my $genfa = qq/$opts{s} seq -nn -l0 -aq$opts{d} \$< | $opts{s} cutN -n1 - | $opts{s} seq -UL$opts{l} -l0 | gzip -1 > $pre.fa.gz/;
+			my $seqs = qq/(gzip -dc $pre.fa.gz; $opts{s} seq -rl0 $pre.fa.gz)/;
+			push(@lines, qq/\t$genfa; $seqs|$tmp; rm -f $pre.fa.gz/, "");
+		} else {
+			my $seqs = qq/($opts{s} seq -Ul0 \$<; $opts{s} seq -rUl0 \$<)/;
+			push(@lines, qq/\t$seqs|$tmp/, "");
+		}
 		$prev = "$pre.fmr";
 	}
 	unshift(@lines, "all:$prev\n");
@@ -172,7 +178,7 @@ sub which
 	return if (!defined($path));
 	foreach my $x (split(":", $path)) {
 		$x =~ s/\/$//;
-		return "$x/$file" if (-x "$x/$file");
+		return "$x/$file" if (-x "$x/$file") && (-f "$x/$file");
 	}
 	return;
 }
@@ -184,13 +190,13 @@ sub gwhich {
     my $tmp;
 
     chomp($dirname);
-    if ($progname =~ /^\// && (-x $progname)) {
+    if ($progname =~ /^\// && (-x $progname) && (-f $progname)) {
         return $progname;
     } elsif (defined($addtional_path) && ($tmp = &which($progname, $addtional_path))) {
         return $tmp;
-    } elsif (defined($dirname) && (-x "$dirname/$progname")) {
+    } elsif (defined($dirname) && (-x "$dirname/$progname") && (-f "$dirname/$progname")) {
         return "$dirname/$progname";
-    } elsif (-x "./$progname") {
+    } elsif ((-x "./$progname") && (-f "./$progname")) {
         return "./$progname";
     } elsif (($tmp = &which($progname))) {
         return $tmp;
