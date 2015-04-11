@@ -113,7 +113,14 @@ fermi.kit/k8:k8-0.2.1.tar.bz2 fermi.kit
 #############
 
 clean:
-	rm -fr fermi.kit
+	rm -fr fermi.kit; \
+	[ -d htsbox ] && (cd htsbox; make clean; rm -fr .git); \
+	[ -d ropebwt2 ] && (cd ropebwt2; make clean; rm -fr .git); \
+	[ -d bfc ] && (cd bfc; make clean; rm -fr .git); \
+	[ -d bwa ] && (cd bwa; make clean; rm -fr .git); \
+	[ -d fermi2 ] && (cd fermi2; make clean; rm -fr .git); \
+	[ -d seqtk ] && (cd seqtk; make clean; rm -fr .git); \
+	[ -d trimadap ] && (cd trimadap; make clean; rm -fr .git);
 
 distclean:clean
 	rm -fr htsbox ropebwt2 bfc bwa fermi2 seqtk trimadap k8-0.2.1.tar.bz2
