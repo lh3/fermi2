@@ -107,6 +107,7 @@ Options: -p STR    output prefix [$opts{p}]
 	push(@lines, qq/K_UNITIG=$opts{k}/, qq/K_CLEAN=$opts{o}/, qq/K_TRIM=$opts{T}/, qq/K_MERGE=$opts{m}/);
 	push(@lines, qq/N_THREADS=$opts{t}/, "");
 	push(@lines, (-f $ARGV[0])? qq/INPUT=cat $ARGV[0]/ : qq/INPUT=$ARGV[0]/, "");
+	push(@lines, "SHELL:=/bin/bash", qq/export SHELLOPTS:=errexit:pipefail/, "");
 
 	push(@lines, qq/all:\$(PREFIX).mag.gz/, "");
 
@@ -114,11 +115,11 @@ Options: -p STR    output prefix [$opts{p}]
 	if (defined $opts{E}) {
 		push(@lines, (-f $ARGV[0])? qq/\tln -s $ARGV[0] \$@/ : qq/\t$(INPUT) | gzip -1 > $@/, "");
 	} elsif (defined $opts{2}) {
-		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE)  -k \$(K_EC1) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$(PREFIX).ec1.fq.gz'; \\/);
-		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -Rk \$(K_EC2) -t \$(N_THREADS) <(\$(INPUT)) \$(PREFIX).ec1.fq.gz 2>> \$@.log | gzip -1 > \$\@'; \\/);
+		push(@lines, qq/\tbash -e -o pipefail -c '\$(EXE_BFC) -s \$(GENOME_SIZE)  -k \$(K_EC1) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$(PREFIX).ec1.fq.gz'; \\/);
+		push(@lines, qq/\tbash -e -o pipefail -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -Rk \$(K_EC2) -t \$(N_THREADS) <(\$(INPUT)) \$(PREFIX).ec1.fq.gz 2>> \$@.log | gzip -1 > \$\@'; \\/);
 		push(@lines, qq/\trm -f \$(PREFIX).ec1.fq.gz/, "");
 	} else {
-		push(@lines, qq/\tbash -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/, "");
+		push(@lines, qq/\tbash -e -o pipefail -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$\@'/, "");
 	}
 
 	push(@lines, qq/\$(PREFIX).flt.fq.gz:\$(PREFIX).ec.fq.gz/);
