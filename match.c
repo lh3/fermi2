@@ -141,7 +141,7 @@ typedef struct {
 static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int l_seq, const char *seq, const char *qual, kstring_t *s, kstring_t cmp[2])
 {
 	int start, end, i, ext[2], left, right, tmp_l, pos;
-	int64_t occ[2], misc[2];
+	int64_t occ[2];
 	rldintv_t ovlp;
 
 	// find the coordinate from which the extension will be applied
@@ -174,7 +174,6 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 			assert(ovlp.x[2] > 0);
 		}
 	}
-	misc[0] = misc[1] = -1;
 	occ[0] = occ[1] = 0;
 	ext[0] = ext[1] = 0;
 	// left extension
@@ -185,7 +184,6 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 			int c = seq[i];
 			rld_rank1a(e, l, ol);
 			rld_rank1a(e, u, ou);
-			misc[0] += (u - l) - (ou[0] - ol[0]) - (ou[c] - ol[c]);
 			l = e->cnt[c] + ol[c];
 			u = e->cnt[c] + ou[c];
 			if (u - l <= q->ik.x[2]) break;
@@ -202,7 +200,6 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 			int c = fmd_comp(seq[i]);
 			rld_rank1a(e, l, ol);
 			rld_rank1a(e, u, ou);
-			misc[1] += (u - l) - (ou[0] - ol[0]) - (ou[c] - ol[c]);
 			l = e->cnt[c] + ol[c];
 			u = e->cnt[c] + ou[c];
 			if (u - l <= p->ik.x[2]) break;
@@ -211,7 +208,6 @@ static void discover(const rld_t *e, const fmdsmem_t *q, const fmdsmem_t *p, int
 		ext[1] = i + 1 - right;
 		occ[1] = u - l;
 	}
-	if (ovlp.x[2] < e->mcnt[0] && misc[0] == 0 && misc[1] == 0) return;
 	if (ovlp.x[2] == occ[0] + occ[1]) return;
 	// cut sequence
 	pos = left + 1 - ext[0];
