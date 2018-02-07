@@ -113,7 +113,7 @@ Options: -p STR    output prefix [$opts{p}]
 
 	push(@lines, qq/\$(PREFIX).ec.fq.gz:/);
 	if (defined $opts{E}) {
-		push(@lines, (-f $ARGV[0])? qq/\tln -s $ARGV[0] \$@/ : qq/\t$(INPUT) | gzip -1 > $@/, "");
+		push(@lines, (-f $ARGV[0])? qq/\tln -s $ARGV[0] \$@/ : qq/\t\$(INPUT) | gzip -1 > \$\@/, "");
 	} elsif (defined $opts{2}) {
 		push(@lines, qq/\tbash -e -o pipefail -c '\$(EXE_BFC) -s \$(GENOME_SIZE)  -k \$(K_EC1) -t \$(N_THREADS) <(\$(INPUT)) <(\$(INPUT)) 2> \$@.log | gzip -1 > \$(PREFIX).ec1.fq.gz'; \\/);
 		push(@lines, qq/\tbash -e -o pipefail -c '\$(EXE_BFC) -s \$(GENOME_SIZE) -Rk \$(K_EC2) -t \$(N_THREADS) <(\$(INPUT)) \$(PREFIX).ec1.fq.gz 2>> \$@.log | gzip -1 > \$\@'; \\/);
