@@ -309,37 +309,34 @@ int main_match(int argc, char *argv[])
 
 	memset(&g, 0, sizeof(global_t));
 	g.max_sa_occ = 10, g.min_occ = 1, g.n_threads = 1, g.kmer = 61;
-	while ((c = getopt(argc, argv, "Mdps:m:O:b:t:k:")) >= 0) {
+	while ((c = getopt(argc, argv, "Mdps:m:n:b:t:k:")) >= 0) {
 		if (c == 'M') use_mmap = 1;
 		else if (c == 's') fn_sa = optarg;
 		else if (c == 'm') g.max_sa_occ = atoi(optarg);
 		else if (c == 'p') g.partial = 1;
 		else if (c == 'd') g.discovery = g.partial = 1;
-		else if (c == 'O') g.min_occ = atoi(optarg);
+		else if (c == 'n') g.min_occ = atoi(optarg);
 		else if (c == 't') g.n_threads = atoi(optarg);
 		else if (c == 'k') g.kmer = atoi(optarg), g.discovery = g.partial = 1;
 		else if (c == 'b') batch_size = atoi(optarg);
 	}
 
 	if (optind + 2 > argc) {
-		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:   fermi2 match [options] <index.fmd> <seq.fa>\n\n");
-		fprintf(stderr, "Options: -p        find SMEMs (req. both strands in one index)\n");
-		fprintf(stderr, "         -d        discovery novel alleles (force -p)\n");
-		fprintf(stderr, "         -k INT    k-mer length in the discovery mode (force -d) [%d]\n", g.kmer);
-		fprintf(stderr, "         -t INT    number of threads [%d]\n", g.n_threads);
-		fprintf(stderr, "         -b INT    batch size [%d]\n", batch_size);
-		fprintf(stderr, "         -s FILE   sampled suffix array [null]\n");
-		fprintf(stderr, "         -m INT    show coordinate if the number of hits is no more than INT [%d]\n", g.max_sa_occ);
-		fprintf(stderr, "         -O INT    min occurrences [%d]\n", g.min_occ);
-		fprintf(stderr, "\n");
-		fprintf(stderr, "Output format:\n\n");
-		fprintf(stderr, "    SQ  seqName  seqLen\n");
-		fprintf(stderr, "    EM  start  end  occurrence [positions]\n");
-		fprintf(stderr, "    NS  start  leftLen  diffLen  rightLen  leftOcc  rightOcc  strand  seq  qual\n");
-		fprintf(stderr, "\n");
-		fprintf(stderr, "  At an 'NS' line, the length of 'seq' always equals leftLen+diffLen+rightLen.\n");
-		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage: fermi2 match [options] <index.fmd> <seq.fa>\n");
+		fprintf(stderr, "Options:\n");
+		fprintf(stderr, "  -p        find SMEMs (reqiring both strands in one index)\n");
+		fprintf(stderr, "  -d        discovery novel alleles (force -p)\n");
+		fprintf(stderr, "  -k INT    k-mer length in the discovery mode (force -d) [%d]\n", g.kmer);
+		fprintf(stderr, "  -t INT    number of threads [%d]\n", g.n_threads);
+		fprintf(stderr, "  -b INT    batch size [%d]\n", batch_size);
+		fprintf(stderr, "  -s FILE   sampled suffix array []\n");
+		fprintf(stderr, "  -m INT    show coordinate if the number of hits is no more than INT [%d]\n", g.max_sa_occ);
+		fprintf(stderr, "  -n INT    min occurrences [%d]\n", g.min_occ);
+		fprintf(stderr, "Output format:\n");
+		fprintf(stderr, "    SQ  seqName seqLen\n");
+		fprintf(stderr, "    EM  start   end     occurrence [positions]\n");
+//		fprintf(stderr, "    NS  start   leftLen  diffLen  rightLen  leftOcc  rightOcc  strand  seq  qual\n");
+//		fprintf(stderr, "  At an 'NS' line, the length of 'seq' always equals leftLen+diffLen+rightLen.\n");
 		return 1;
 	}
 
