@@ -128,7 +128,7 @@ typedef struct {
 typedef struct {
 	const rld_t *e;
 	const fmsa_t *sa;
-	int max_sa_occ, min_occ;
+	int max_sa_occ, min_occ, min_len;
 	int partial, discovery, kmer;
 
 	int n_threads;
@@ -282,7 +282,9 @@ static void worker(void *data, long jid, int tid)
 		} else {
 			for (i = 0; i < m->smem.n; ++i) {
 				fmdsmem_t *p = &m->smem.a[i];
-				ksprintf(&m->str, "EM\t%u\t%u\t%ld", (uint32_t)(p->ik.info>>32), (uint32_t)p->ik.info, (long)p->ik.x[2]);
+				uint32_t st = (uint32_t)(p->ik.info>>32), en = (uint32_t)p->ik.info;
+				if (en - st < g->min_len) continue;
+				ksprintf(&m->str, "EM\t%u\t%u\t%ld", st, en, (long)p->ik.x[2]);
 				if (g->sa && p->ik.x[2] < g->max_sa_occ) {
 					for (k = 0; k < p->ik.x[2]; ++k) {
 						int64_t idx, j;
@@ -308,10 +310,11 @@ int main_match(int argc, char *argv[])
 	global_t g;
 
 	memset(&g, 0, sizeof(global_t));
-	g.max_sa_occ = 10, g.min_occ = 1, g.n_threads = 1, g.kmer = 61;
-	while ((c = getopt(argc, argv, "Mdps:m:n:b:t:k:")) >= 0) {
+	g.max_sa_occ = 10, g.min_occ = 1, g.n_threads = 1, g.kmer = 61, g.min_len = 0;
+	while ((c = getopt(argc, argv, "Mdps:m:n:b:t:k:l:")) >= 0) {
 		if (c == 'M') use_mmap = 1;
 		else if (c == 's') fn_sa = optarg;
+		else if (c == 'l') g.min_len = atoi(optarg);
 		else if (c == 'm') g.max_sa_occ = atoi(optarg);
 		else if (c == 'p') g.partial = 1;
 		else if (c == 'd') g.discovery = g.partial = 1;
@@ -325,13 +328,14 @@ int main_match(int argc, char *argv[])
 		fprintf(stderr, "Usage: fermi2 match [options] <index.fmd> <seq.fa>\n");
 		fprintf(stderr, "Options:\n");
 		fprintf(stderr, "  -p        find SMEMs (reqiring both strands in one index)\n");
-		fprintf(stderr, "  -d        discovery novel alleles (force -p)\n");
+		fprintf(stderr, "  -d        discovery novel alleles (force -p; experimental)\n");
 		fprintf(stderr, "  -k INT    k-mer length in the discovery mode (force -d) [%d]\n", g.kmer);
 		fprintf(stderr, "  -t INT    number of threads [%d]\n", g.n_threads);
 		fprintf(stderr, "  -b INT    batch size [%d]\n", batch_size);
 		fprintf(stderr, "  -s FILE   sampled suffix array []\n");
 		fprintf(stderr, "  -m INT    show coordinate if the number of hits is no more than INT [%d]\n", g.max_sa_occ);
 		fprintf(stderr, "  -n INT    min occurrences [%d]\n", g.min_occ);
+		fprintf(stderr, "  -l INT    min length [%d]\n", g.min_len);
 		fprintf(stderr, "Output format:\n");
 		fprintf(stderr, "    SQ  seqName seqLen\n");
 		fprintf(stderr, "    EM  start   end     occurrence [positions]\n");
