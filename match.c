@@ -331,7 +331,7 @@ int main_match(int argc, char *argv[])
 		fprintf(stderr, "         -b INT    batch size [%d]\n", batch_size);
 		fprintf(stderr, "         -s FILE   sampled suffix array [null]\n");
 		fprintf(stderr, "         -m INT    show coordinate if the number of hits is no more than INT [%d]\n", g.max_sa_occ);
-		fprintf(stderr, "         -s INT    min occurrences [%d]\n", g.min_occ);
+		fprintf(stderr, "         -O INT    min occurrences [%d]\n", g.min_occ);
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Output format:\n\n");
 		fprintf(stderr, "    SQ  seqName  seqLen\n");
