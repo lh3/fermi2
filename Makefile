@@ -33,7 +33,7 @@ ksw.o: ksw.h
 mag.o: priv.h mag.h kstring.h kvec.h kseq.h khash.h ksort.h
 main.o: fermi2.h rld0.h
 match.o: fermi2.h rld0.h kvec.h kstring.h kseq.h
-profk.o: fermi2.h rld0.h
+profk.o: fermi2.h rld0.h ketopt.h kseq.h
 rld0.o: rld0.h
 sa.o: fermi2.h rld0.h kvec.h
 seq.o: kstring.h kseq.h

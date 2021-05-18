@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <zlib.h>
 #include "fermi2.h"
-#include "rld0.h"
 #include "ketopt.h"
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
@@ -19,14 +18,17 @@ int fm_extend_to(const rld_t *e, const char *s, int x, int min_ext, int sat_occ,
 	if (x + 1 - min_ext < 0) return 0;
 	for (i = x, k = 0; i >= 0; --i) {
 		int c = (uint8_t)s[i];
+		uint64_t l0 = l, u0 = u;
 		c = c < 6? c : c < 128? seq_nt6_table[c] : 5;
 		l = e->cnt[c] + rld_rank11(e, l, c);
 		u = e->cnt[c] + rld_rank11(e, u, c);
 		if (l >= u) break; // can't be extended
 		++k;
 		if (sat_occ > 0) {
-			if (k >= min_ext && u - l < sat_occ)
+			if (k > min_ext && u - l < sat_occ) {
+				--k, l = l0, u = u0;
 				break;
+			}
 		} else if (k == min_ext) {
 			break;
 		}
@@ -65,7 +67,7 @@ fm_icnt_t *fm_kprof(const rld_t *e, const char *s, int min_ext, int sat_occ, int
 int main_kprof(int argc, char *argv[])
 {
 	ketopt_t o = KETOPT_INIT;
-	int c, min_ext = 51, sat_occ = 0;
+	int c, min_ext = 61, sat_occ = 0;
 	rld_t *e;
 	kseq_t *ks;
 	gzFile fp;
@@ -75,7 +77,10 @@ int main_kprof(int argc, char *argv[])
 		else if (c == 'c') sat_occ = atoi(o.arg);
 	}
 	if (argc - o.ind < 2) {
-		fprintf(stderr, "Usage: fermi2 kprof [-k minExt=%d] [-c maxOcc=%d] <in.fmd> <in.fa>\n", min_ext, sat_occ);
+		fprintf(stderr, "Usage: fermi2 kprof [options] <in.fmd> <in.fa>\n");
+		fprintf(stderr, "Options:\n");
+		fprintf(stderr, "  -k INT    min k-mer size [%d]\n", min_ext);
+		fprintf(stderr, "  -c INT    occurrence saturation [%d]\n", sat_occ);
 		return 1;
 	}
 
