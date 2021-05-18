@@ -15,6 +15,7 @@ int main_assemble(int argc, char *argv[]);
 int main_simplify(int argc, char *argv[]);
 int main_sa(int argc, char *argv[]);
 int main_match(int argc, char *argv[]);
+int main_kprof(int argc, char *argv[]);
 
 void liftrlimit(void);
 double cputime(void);
@@ -26,23 +27,20 @@ int main(int argc, char *argv[])
 	double t_start;
 	liftrlimit();
 	if (argc == 1) {
-		fprintf(stderr, "\n");
-		fprintf(stderr, "Program: fermi2\n");
-		fprintf(stderr, "Version: %s\n", FM_VERSION);
-		fprintf(stderr, "Contact: http://hengli.uservoice.com/\n\n");
-		fprintf(stderr, "Usage:   fermi2 <command> [arguments]\n\n");
-		fprintf(stderr, "Command: diff        compare two FMD-indices\n");
-		fprintf(stderr, "         occflt      pick up reads containing low-occurrence k-mers\n");
-		fprintf(stderr, "         sub         subset FM-index\n");
-		fprintf(stderr, "         unpack      unpack FM-index\n");
-		fprintf(stderr, "         correct     error correction\n");
-		fprintf(stderr, "         count       k-mer counting (inefficient for long k-mers)\n");
-		fprintf(stderr, "         interleave  convert 2-file PE fastq to interleaved fastq\n");
-		fprintf(stderr, "         assemble    assemble reads into a unitig graph\n");
-		fprintf(stderr, "         simplify    simplify a unitig graph\n");
-		fprintf(stderr, "         sa          generate sampled suffix array\n");
-		fprintf(stderr, "         match       exact matches\n");
-		fprintf(stderr, "\n");
+		fprintf(stderr, "Usage: fermi2 <command> [arguments]\n");
+		fprintf(stderr, "Command:\n");
+		fprintf(stderr, "  diff        compare two FMD-indices\n");
+		fprintf(stderr, "  occflt      pick up reads containing low-occurrence k-mers\n");
+		fprintf(stderr, "  sub         subset FM-index\n");
+		fprintf(stderr, "  unpack      unpack FM-index\n");
+		fprintf(stderr, "  correct     error correction\n");
+		fprintf(stderr, "  count       k-mer counting (inefficient for long k-mers)\n");
+		fprintf(stderr, "  interleave  convert 2-file PE fastq to interleaved fastq\n");
+		fprintf(stderr, "  assemble    assemble reads into a unitig graph\n");
+		fprintf(stderr, "  simplify    simplify a unitig graph\n");
+		fprintf(stderr, "  sa          generate sampled suffix array\n");
+		fprintf(stderr, "  match       exact matches\n");
+		fprintf(stderr, "  kprof       k-mer profile\n");
 		return 1;
 	}
 	t_start = realtime();
@@ -58,6 +56,7 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "simplify") == 0) ret = main_simplify(argc-1, argv+1);
 	else if (strcmp(argv[1], "sa") == 0) ret = main_sa(argc-1, argv+1);
 	else if (strcmp(argv[1], "match") == 0) ret = main_match(argc-1, argv+1);
+	else if (strcmp(argv[1], "kprof") == 0) ret = main_kprof(argc-1, argv+1);
 	else {
 		fprintf(stderr, "[E::%s] unknown command\n", __func__);
 		return 1;
